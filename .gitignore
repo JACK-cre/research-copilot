@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+data/library.json
+data/uploads/
+*.log
+.DS_Store
+coverage/
+*.tsbuildinfo
+.idea/

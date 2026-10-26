@@ -1,0 +1,39 @@
+{
+  "name": "research-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "WATCHPACK_POLLING=true next dev --webpack",
+    "build": "next build",
+    "start": "next start",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "mcp": "tsx src/mcp/stdio.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "lucide-react": "^0.552.0",
+    "next": "^16.0.0",
+    "openai": "^6.7.0",
+    "pg": "^8.16.3",
+    "pptxgenjs": "4.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "unpdf": "^1.3.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/pg": "^8.15.6",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.6"
+  },
+  "overrides": {
+    "image-size": "2.0.4"
+  }
+}
