@@ -2,6 +2,7 @@ services:
   - type: web
     name: research-copilot
     runtime: docker
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     autoDeployTrigger: commit
@@ -12,8 +13,6 @@ services:
         fromDatabase:
           name: research-copilot-db
           property: connectionString
-      - key: OPENAI_API_KEY
-        sync: false
       - key: OPENAI_BASE_URL
         value: https://api.openai.com/v1
       - key: OPENAI_MODEL
@@ -22,12 +21,10 @@ services:
         value: text-embedding-3-small
       - key: EMBEDDING_DIMENSIONS
         value: "384"
-      - key: OPENALEX_MAILTO
-        sync: false
-      - key: OPENALEX_API_KEY
-        sync: false
 
 databases:
   - name: research-copilot-db
+    plan: free
     databaseName: research
     user: research
+    ipAllowList: []

@@ -12,13 +12,14 @@
 1. 登录 [Render](https://render.com)，选择 **New > Blueprint**。
 2. 连接包含本项目的 GitHub 仓库。
 3. Render 识别 `render.yaml` 后，确认创建 Web Service 和 PostgreSQL。
-4. `OPENAI_API_KEY`、`OPENALEX_MAILTO` 和 `OPENALEX_API_KEY` 可以先留空。
-5. 点击部署，等待健康检查通过。
-6. 打开 Render 分配的 `https://...onrender.com` 地址。
+4. 点击 **Deploy Blueprint**，等待健康检查通过。
+5. 打开 Render 分配的 `https://...onrender.com` 地址。
 
 未配置 `OPENAI_API_KEY` 时，论文检索、知识库、报告和 PPT 仍可使用，但报告由本地规则生成，向量检索使用本地哈希向量。
 
 不要把 API Key 写入 `.env.example`、源代码或 GitHub 仓库。需要启用模型时，在 Render 的 **Environment** 页面单独填写。
+
+Blueprint 默认使用 Render 免费规格，适合演示和个人项目。免费 Web Service 空闲 15 分钟后会休眠，首次唤醒可能需要约一分钟；免费 PostgreSQL 会在创建 30 天后到期。长期公开使用时应升级数据库或迁移到其他持久化 PostgreSQL 服务。
 
 ## Docker Compose
 

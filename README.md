@@ -30,6 +30,8 @@ npm run dev
 
 具体步骤见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
+Render 配置默认选择免费规格，适合演示；免费 PostgreSQL 在创建 30 天后到期，长期使用需要升级或迁移数据库。
+
 ## 模型配置
 
 在 `.env.local` 中填写：
