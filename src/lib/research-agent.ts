@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { excerpt } from '@/lib/text';
 import { callResearchTool } from '@/mcp/client';
 import type { KnowledgeSearchResult } from '@/lib/vector-store';
+import type { DataScope } from '@/types/platform';
 import type {
   Evidence,
   Paper,
@@ -206,7 +207,11 @@ function localSynthesis(request: ResearchRequest, evidence: Evidence[]): Generat
   return { title, thesis, sections, slides };
 }
 
-export async function runResearchAgent(request: ResearchRequest): Promise<ResearchResult> {
+export async function runResearchAgent(
+  request: ResearchRequest,
+  scope?: DataScope,
+  runId: string = randomUUID(),
+): Promise<ResearchResult> {
   const searchQueries = createSearchQueries(request);
   const warnings: string[] = [];
   let papers: Paper[] = [];
@@ -217,17 +222,22 @@ export async function runResearchAgent(request: ResearchRequest): Promise<Resear
       query: searchQueries[0],
       yearFrom: request.yearFrom,
       limit: request.paperCount,
-    });
+    }, scope);
     papers = result.papers;
     if (result.warning) warnings.push(result.warning);
   }
 
   if (request.includeLibrary) {
-    knowledgeMatches = await callResearchTool<KnowledgeSearchResult[]>('search_knowledge', {
-      query: [request.topic, request.requirements].filter(Boolean).join(' '),
-      limit: 8,
-    });
-    if (!knowledgeMatches.length) warnings.push('知识库中暂无相关资料。');
+    try {
+      knowledgeMatches = await callResearchTool<KnowledgeSearchResult[]>('search_knowledge', {
+        query: [request.topic, request.requirements].filter(Boolean).join(' '),
+        limit: 8,
+      }, scope);
+      if (!knowledgeMatches.length) warnings.push('知识库中暂无与当前向量模型匹配的相关资料。');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '未知错误';
+      warnings.push('知识库检索暂不可用，本次已跳过：' + detail);
+    }
   }
 
   const localEvidence = knowledgeEvidence(knowledgeMatches);
@@ -250,7 +260,7 @@ export async function runResearchAgent(request: ResearchRequest): Promise<Resear
   }));
 
   return {
-    id: randomUUID(),
+    id: runId,
     createdAt: new Date().toISOString(),
     request,
     title: generated.title,

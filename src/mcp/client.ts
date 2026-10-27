@@ -2,13 +2,15 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { createResearchMcpServer } from '@/mcp/server';
+import type { DataScope } from '@/types/platform';
 
 export async function callResearchTool<T>(
   name: string,
   args: Record<string, unknown> = {},
+  scope?: DataScope,
 ): Promise<T> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = createResearchMcpServer();
+  const server = createResearchMcpServer(scope);
   const client = new Client({ name: 'research-copilot-web', version: '0.1.0' });
 
   await server.connect(serverTransport);

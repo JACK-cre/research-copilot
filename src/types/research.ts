@@ -36,6 +36,11 @@ export interface KnowledgeDocument {
   size: number;
   chunkCount: number;
   createdAt: string;
+  status?: "processing" | "ready" | "failed";
+  sha256?: string;
+  storagePath?: string;
+  embeddingModel?: string;
+  embeddingDimensions?: number;
 }
 
 export interface KnowledgeChunk {

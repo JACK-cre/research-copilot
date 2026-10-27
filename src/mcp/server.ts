@@ -3,7 +3,9 @@ import { z } from 'zod';
 
 import { embedText } from '@/lib/embeddings';
 import { searchOpenAlex } from '@/lib/openalex';
+import { isCloudPlatformConfigured } from '@/lib/platform-config';
 import { getVectorStore } from '@/lib/vector-store';
+import type { DataScope } from '@/types/platform';
 
 function toolResult(value: unknown) {
   return {
@@ -11,7 +13,7 @@ function toolResult(value: unknown) {
   };
 }
 
-export function createResearchMcpServer(): McpServer {
+export function createResearchMcpServer(scope?: DataScope): McpServer {
   const server = new McpServer({
     name: 'research-copilot-tools',
     version: '0.1.0',
@@ -45,8 +47,11 @@ export function createResearchMcpServer(): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ query, limit }) => {
+      if (isCloudPlatformConfigured() && !scope) {
+        throw new Error('Cloud knowledge search requires an authenticated workspace.');
+      }
       const queryVector = await embedText(query);
-      const matches = await getVectorStore().search(queryVector, limit);
+      const matches = await getVectorStore().search(queryVector, limit, scope);
       return toolResult(matches);
     },
   );
@@ -58,7 +63,12 @@ export function createResearchMcpServer(): McpServer {
       description: 'List documents that are available to retrieval.',
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () => toolResult(await getVectorStore().listDocuments()),
+    async () => {
+      if (isCloudPlatformConfigured() && !scope) {
+        throw new Error('Cloud library access requires an authenticated workspace.');
+      }
+      return toolResult(await getVectorStore().listDocuments(scope));
+    },
   );
 
   return server;

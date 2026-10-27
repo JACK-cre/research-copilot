@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { getDatabasePool } from '@/lib/db';
+import { getDatabaseUrl, isCloudPlatformConfigured } from '@/lib/platform-config';
 import { getVectorStore } from '@/lib/vector-store';
 
 export const runtime = 'nodejs';
@@ -7,10 +9,18 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    await getVectorStore().listDocuments();
+    if (isCloudPlatformConfigured()) {
+      const result = await getDatabasePool().query<{ runs: string | null }>(
+        "SELECT to_regclass('public.research_runs')::text AS runs",
+      );
+      if (!result.rows[0]?.runs) throw new Error('Supabase migration has not been applied.');
+    } else if (getDatabaseUrl()) await getDatabasePool().query('SELECT 1');
+    else await getVectorStore().listDocuments();
     return NextResponse.json({
       status: 'ok',
-      storage: process.env.DATABASE_URL ? 'pgvector' : 'local',
+      mode: isCloudPlatformConfigured() ? 'cloud' : 'legacy',
+      storage: getDatabaseUrl() ? 'pgvector' : 'local',
+      ai: process.env.OPENAI_API_KEY ? 'model' : 'local',
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

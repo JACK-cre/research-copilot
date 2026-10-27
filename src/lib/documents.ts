@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { extractText } from 'unpdf';
 
 import { embedTexts } from '@/lib/embeddings';
+import { getEmbeddingIdentity } from '@/lib/platform-config';
 import { chunkText, normalizeWhitespace } from '@/lib/text';
 import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
 
@@ -39,12 +40,14 @@ export async function parseUpload(file: File): Promise<ParsedUpload> {
     throw new Error('仅支持 PDF、Markdown 和 TXT 文件。');
   }
 
+  const bytes = new Uint8Array(await file.arrayBuffer());
   const text = normalizeWhitespace(await parseFileText(file));
   if (text.length < 40) throw new Error('没有从文件中提取到足够的文本。');
 
   const parts = chunkText(text);
   const vectors = await embedTexts(parts);
   const documentId = randomUUID();
+  const embedding = getEmbeddingIdentity();
   const document: KnowledgeDocument = {
     id: documentId,
     name: file.name.replace(/[\\/]/g, '_'),
@@ -52,6 +55,10 @@ export async function parseUpload(file: File): Promise<ParsedUpload> {
     size: file.size,
     chunkCount: parts.length,
     createdAt: new Date().toISOString(),
+    status: 'ready',
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    embeddingModel: embedding.model,
+    embeddingDimensions: embedding.dimensions,
   };
   const chunks: KnowledgeChunk[] = parts.map((content, index) => ({
     id: documentId + ':' + index,

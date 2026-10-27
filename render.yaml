@@ -21,6 +21,22 @@ services:
         value: text-embedding-3-small
       - key: EMBEDDING_DIMENSIONS
         value: "384"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_GITHUB_AUTH_ENABLED
+        value: "false"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DAILY_RESEARCH_LIMIT
+        value: "20"
+      - key: WORKSPACE_STORAGE_LIMIT_MB
+        value: "250"
 
 databases:
   - name: research-copilot-db

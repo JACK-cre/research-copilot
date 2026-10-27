@@ -7,6 +7,9 @@
 - 通过 OpenAlex 检索并筛选论文，服务不可用时自动使用示例语料
 - 上传 PDF、Markdown、TXT，自动解析、切分并向量化
 - 默认使用本地 JSON 向量存储，也可切换 PostgreSQL + pgvector
+- Supabase 邮箱/GitHub 登录、私有工作空间和行级安全策略
+- 原始资料、Markdown、PPTX 使用私有对象存储长期归档
+- 研究任务、检索证据、报告和幻灯片大纲可持久化并从历史记录恢复
 - 通过 MCP 工具执行论文检索、知识库检索和资料列表查询
 - 生成结构化研究综述、证据引用、幻灯片大纲和讲稿
 - 导出 Markdown 报告和真正的 `.pptx` 文件
@@ -30,7 +33,14 @@ npm run dev
 
 具体步骤见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
-Render 配置默认选择免费规格，适合演示；免费 PostgreSQL 在创建 30 天后到期，长期使用需要升级或迁移数据库。
+Render 配置默认选择免费规格，适合演示。长期使用推荐让 Render 只运行应用，把认证、PostgreSQL、pgvector 和私有文件迁移到 Supabase Pro。完整步骤见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
+## 运行模式
+
+- **兼容模式**：未填写完整 Supabase 配置时，保持原有单用户体验；本地使用 JSON 或 `DATABASE_URL`。
+- **私有云模式**：同时配置 Supabase URL、Anon Key、Service Role Key 和数据库连接后，强制登录并启用工作空间隔离、原文件保存、研究历史和成品归档。
+
+数据库结构和 RLS 策略位于 `supabase/migrations/202610270001_research_platform.sql`。
 
 ## 模型配置
 
@@ -44,7 +54,11 @@ EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=384
 ```
 
-`OPENAI_BASE_URL` 可指向兼容 OpenAI Chat Completions 和 Embeddings 的服务。如果生成或向量接口失败，应用会回退到本地模式并继续运行。
+`OPENAI_BASE_URL` 可指向兼容 OpenAI Chat Completions 和 Embeddings 的服务。报告生成失败时会回退到本地生成器；Embedding 失败时上传会停止并显示错误，避免把不同算法的向量混入同一知识库。
+
+知识库检索只使用与当前 `EMBEDDING_MODEL` 和维度一致的资料。启用真实 Embedding 或更换模型后，请重新上传旧资料。
+
+API Key 只允许放在服务端环境变量中，不要使用 `NEXT_PUBLIC_` 前缀。OpenAI API 计费与 ChatGPT 订阅相互独立，建议同时设置平台预算告警和应用内每日任务额度。
 
 ## 使用 pgvector
 

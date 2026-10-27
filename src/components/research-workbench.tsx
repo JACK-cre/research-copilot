@@ -5,16 +5,20 @@ import {
   BookOpen,
   Check,
   ChevronRight,
+  Cloud,
   Database,
   Download,
   FileText,
   FlaskConical,
+  History,
   Library,
   LoaderCircle,
+  LogOut,
   PanelLeft,
   Presentation,
   Search,
   Sparkles,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react';
@@ -25,8 +29,9 @@ import type {
   ResearchRequest,
   ResearchResult,
 } from '@/types/research';
+import type { ResearchArtifact, ResearchRunSummary } from '@/types/platform';
 
-type WorkspaceView = 'research' | 'library';
+type WorkspaceView = 'research' | 'library' | 'history';
 type ResultTab = 'overview' | 'papers' | 'report' | 'slides';
 
 const initialRequest: ResearchRequest = {
@@ -58,12 +63,20 @@ function citationText(ids: string[]): string {
   return ids.map((id) => '[' + id + ']').join(' ');
 }
 
-export function ResearchWorkbench() {
+interface ResearchWorkbenchProps {
+  cloudEnabled?: boolean;
+  userEmail?: string;
+  onSignOut?: () => Promise<void>;
+}
+
+export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }: ResearchWorkbenchProps) {
   const [view, setView] = useState<WorkspaceView>('research');
   const [tab, setTab] = useState<ResultTab>('overview');
   const [request, setRequest] = useState<ResearchRequest>(initialRequest);
   const [result, setResult] = useState<ResearchResult | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [runs, setRuns] = useState<ResearchRunSummary[]>([]);
+  const [artifacts, setArtifacts] = useState<ResearchArtifact[]>([]);
   const [running, setRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -83,9 +96,30 @@ export function ResearchWorkbench() {
     }
   }, []);
 
+  const loadHistory = useCallback(async () => {
+    if (!cloudEnabled) return;
+    try {
+      const response = await fetch('/api/research', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '研究历史读取失败');
+      setRuns(payload.runs);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : '研究历史读取失败');
+    }
+  }, [cloudEnabled]);
+
+  const refreshArtifacts = useCallback(async (runId: string) => {
+    if (!cloudEnabled) return;
+    const response = await fetch('/api/research/' + runId, { cache: 'no-store' });
+    if (!response.ok) return;
+    const payload = await response.json();
+    setArtifacts(payload.artifacts ?? []);
+  }, [cloudEnabled]);
+
   useEffect(() => {
     void loadLibrary();
-  }, [loadLibrary]);
+    void loadHistory();
+  }, [loadHistory, loadLibrary]);
 
   const yearCounts = useMemo(() => {
     if (!result) return [];
@@ -114,8 +148,10 @@ export function ResearchWorkbench() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '研究任务执行失败');
       setResult(payload);
+      setArtifacts([]);
       setStage(stages.length - 1);
       setNotice(payload.mode === 'model' ? '已使用模型完成生成' : '已使用本地生成器完成，可配置模型提升内容质量');
+      void loadHistory();
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : '研究任务执行失败');
     } finally {
@@ -145,32 +181,27 @@ export function ResearchWorkbench() {
     }
   }
 
-  function downloadMarkdown() {
+  async function downloadMarkdown() {
     if (!result) return;
-    const lines = [
-      '# ' + result.title,
-      '',
-      '> ' + result.thesis,
-      '',
-      ...result.sections.flatMap((section) => [
-        '## ' + section.title,
-        '',
-        section.content,
-        '',
-        section.citations.length ? '来源：' + citationText(section.citations) : '',
-        '',
-      ]),
-      '## 参考资料',
-      '',
-      ...result.evidence.map((item) => '- [' + item.id + '] ' + item.title + (item.sourceUrl ? ' — ' + item.sourceUrl : '')),
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'research-report.md';
-    anchor.click();
-    URL.revokeObjectURL(url);
+    setExporting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/export/markdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cloudEnabled ? { id: result.id } : result),
+      });
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.error || '文稿生成失败');
+      }
+      downloadBlob(await response.blob(), 'research-report.md');
+      await refreshArtifacts(result.id);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : '文稿生成失败');
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function downloadPptx() {
@@ -181,23 +212,56 @@ export function ResearchWorkbench() {
       const response = await fetch('/api/export/pptx', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(result),
+        body: JSON.stringify(cloudEnabled ? { id: result.id } : result),
       });
       if (!response.ok) {
         const payload = await response.json();
         throw new Error(payload.error || 'PPT 生成失败');
       }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'research-briefing.pptx';
-      anchor.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(await response.blob(), 'research-briefing.pptx');
+      await refreshArtifacts(result.id);
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : 'PPT 生成失败');
     } finally {
       setExporting(false);
+    }
+  }
+
+  function downloadBlob(blob: Blob, fileName: string) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function openRun(id: string) {
+    setError('');
+    try {
+      const response = await fetch('/api/research/' + id, { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '研究任务读取失败');
+      setResult(payload.result);
+      setArtifacts(payload.artifacts ?? []);
+      setView('research');
+      setTab('overview');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : '研究任务读取失败');
+    }
+  }
+
+  async function deleteDocument(id: string) {
+    if (!window.confirm('确认删除这份资料及其全部向量片段？')) return;
+    setError('');
+    try {
+      const response = await fetch('/api/library/' + id, { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '资料删除失败');
+      await loadLibrary();
+      setNotice('资料已删除');
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : '资料删除失败');
     }
   }
 
@@ -219,23 +283,27 @@ export function ResearchWorkbench() {
           <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')}>
             <Library size={17} />知识库<span className="nav-count">{documents.length}</span>
           </button>
+          {cloudEnabled ? <button className={view === 'history' ? 'nav-item active' : 'nav-item'} onClick={() => setView('history')}>
+            <History size={17} />研究历史<span className="nav-count">{runs.length}</span>
+          </button> : null}
         </nav>
 
         <div className="sidebar-status">
           <span className="status-dot" />
-          <div><strong>{process.env.NEXT_PUBLIC_MODEL_NAME || 'Local ready'}</strong><span>MCP tools available</span></div>
+          <div><strong>{cloudEnabled ? 'Private cloud' : 'Local ready'}</strong><span>{cloudEnabled ? '数据按工作空间隔离' : '兼容模式 · MCP 可用'}</span></div>
         </div>
+        {userEmail ? <div className="account-block"><div><Cloud size={15} /><span title={userEmail}>{userEmail}</span></div><button className="icon-button" onClick={() => void onSignOut?.()} title="退出登录" aria-label="退出登录"><LogOut size={16} /></button></div> : null}
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{view === 'research' ? 'RESEARCH / NEW RUN' : 'KNOWLEDGE / LIBRARY'}</span>
-            <h1>{view === 'research' ? '研究任务' : '知识库'}</h1>
+            <span className="eyebrow">{view === 'research' ? 'RESEARCH / NEW RUN' : view === 'library' ? 'KNOWLEDGE / LIBRARY' : 'RESEARCH / HISTORY'}</span>
+            <h1>{view === 'research' ? '研究任务' : view === 'library' ? '知识库' : '研究历史'}</h1>
           </div>
           {view === 'research' && result ? (
             <div className="top-actions">
-              <button className="button secondary" onClick={downloadMarkdown}><FileText size={16} />导出文稿</button>
+              <button className="button secondary" onClick={() => void downloadMarkdown()} disabled={exporting}><FileText size={16} />导出文稿</button>
               <button className="button primary" onClick={downloadPptx} disabled={exporting}>
                 {exporting ? <LoaderCircle className="spin" size={16} /> : <Presentation size={16} />}导出 PPT
               </button>
@@ -320,7 +388,7 @@ export function ResearchWorkbench() {
                   </div>
 
                   <div className="tab-content">
-                    {tab === 'overview' ? <Overview result={result} yearCounts={yearCounts} /> : null}
+                    {tab === 'overview' ? <Overview result={result} yearCounts={yearCounts} artifacts={artifacts} /> : null}
                     {tab === 'papers' ? <Papers result={result} /> : null}
                     {tab === 'report' ? <Report result={result} /> : null}
                     {tab === 'slides' ? <Slides result={result} /> : null}
@@ -341,15 +409,15 @@ export function ResearchWorkbench() {
               )) : <div className="rail-empty"><Database size={20} /><span>暂无证据</span></div>}
             </aside>
           </div>
-        ) : (
-          <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} />
-        )}
+        ) : view === 'library' ? (
+          <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} cloudEnabled={cloudEnabled} />
+        ) : <HistoryView runs={runs} onOpen={openRun} />}
       </section>
     </main>
   );
 }
 
-function Overview({ result, yearCounts }: { result: ResearchResult; yearCounts: Array<[number, number]> }) {
+function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; yearCounts: Array<[number, number]>; artifacts: ResearchArtifact[] }) {
   const maxCount = Math.max(1, ...yearCounts.map(([, count]) => count));
   return (
     <div className="overview-grid">
@@ -359,6 +427,10 @@ function Overview({ result, yearCounts }: { result: ResearchResult; yearCounts: 
         <div><strong>{result.sections.length}</strong><span>文稿章节</span></div>
         <div><strong>{result.slides.length}</strong><span>幻灯片</span></div>
       </div>
+      {artifacts.length ? <section className="content-section">
+        <div className="section-title"><h3>已归档成果</h3><span>{artifacts.length} 个文件</span></div>
+        <div className="artifact-list">{artifacts.map((artifact) => <a href={'/api/artifacts/' + artifact.id} target="_blank" rel="noreferrer" key={artifact.id}><span className="artifact-icon">{artifact.type === 'pptx' ? <Presentation size={16} /> : <FileText size={16} />}</span><span><strong>{artifact.fileName}</strong><small>{formatBytes(artifact.size)} · {new Date(artifact.createdAt).toLocaleString('zh-CN')}</small></span><Download size={15} /></a>)}</div>
+      </section> : null}
       <section className="content-section">
         <div className="section-title"><h3>发表年份分布</h3><span>{result.request.yearFrom} 至今</span></div>
         {yearCounts.length ? <div className="year-chart" role="img" aria-label="论文发表年份分布">
@@ -392,7 +464,7 @@ function Slides({ result }: { result: ResearchResult }) {
   return <div className="slide-grid">{result.slides.map((slide, index) => <article className={'slide-preview slide-' + slide.type} key={index}><div className="slide-top"><span>{String(index + 1).padStart(2, '0')}</span><Presentation size={14} /></div><h3>{slide.title}</h3><ul>{slide.keyPoints.slice(0, 5).map((point) => <li key={point}>{point}</li>)}</ul><footer>{citationText(slide.citations)}</footer></article>)}</div>;
 }
 
-function LibraryView({ documents, uploading, fileInput, onUpload }: { documents: KnowledgeDocument[]; uploading: boolean; fileInput: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | null) => void }) {
+function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, cloudEnabled }: { documents: KnowledgeDocument[]; uploading: boolean; fileInput: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | null) => void; onDelete: (id: string) => Promise<void>; cloudEnabled: boolean }) {
   return (
     <div className="library-layout">
       <input ref={fileInput} hidden type="file" accept=".pdf,.md,.txt,application/pdf,text/plain,text/markdown" multiple onChange={(event) => void onUpload(event.target.files)} />
@@ -403,8 +475,23 @@ function LibraryView({ documents, uploading, fileInput, onUpload }: { documents:
       </section>
       <section className="library-table-section">
         <div className="section-title"><h3>已索引资料</h3><span>{documents.length} 份文档</span></div>
-        {documents.length ? <div className="library-table"><div className="library-head"><span>名称</span><span>大小</span><span>分块</span><span>写入时间</span></div>{documents.map((document) => <div className="library-row" key={document.id}><span className="document-name"><FileText size={16} />{document.name}</span><span>{formatBytes(document.size)}</span><span>{document.chunkCount}</span><span>{new Date(document.createdAt).toLocaleString('zh-CN')}</span><ChevronRight size={15} /></div>)}</div> : <div className="library-empty"><BookOpen size={24} /><span>知识库为空</span></div>}
+        {documents.length ? <div className="library-table"><div className="library-head"><span>名称</span><span>大小</span><span>分块</span><span>写入时间</span></div>{documents.map((document) => <div className="library-row" key={document.id}><span className="document-name"><FileText size={16} />{document.name}</span><span>{formatBytes(document.size)}</span><span>{document.chunkCount}</span><span>{new Date(document.createdAt).toLocaleString('zh-CN')}</span><span className="row-actions">{cloudEnabled ? <a className="icon-button" href={'/api/library/' + document.id} title="下载原文件" aria-label={'下载 ' + document.name}><Download size={15} /></a> : <ChevronRight size={15} />}<button className="icon-button danger" onClick={() => void onDelete(document.id)} title="删除资料" aria-label={'删除 ' + document.name}><Trash2 size={15} /></button></span></div>)}</div> : <div className="library-empty"><BookOpen size={24} /><span>知识库为空</span></div>}
       </section>
+    </div>
+  );
+}
+
+function HistoryView({ runs, onOpen }: { runs: ResearchRunSummary[]; onOpen: (id: string) => Promise<void> }) {
+  return (
+    <div className="history-layout">
+      <div className="history-summary"><History size={21} /><div><strong>研究记录</strong><span>完整报告和证据会持久保存在你的私有工作空间</span></div></div>
+      {runs.length ? <div className="history-list">{runs.map((run) => (
+        <article className="history-row" key={run.id}>
+          <div className={'run-status ' + run.status}>{run.status === 'completed' ? '已完成' : run.status === 'running' ? '执行中' : '失败'}</div>
+          <div className="history-main"><h2>{run.title || run.topic}</h2><p>{new Date(run.createdAt).toLocaleString('zh-CN')} · {run.paperCount} 篇论文 · {run.evidenceCount} 条证据</p>{run.error ? <span>{run.error}</span> : null}</div>
+          <button className="button secondary" disabled={run.status !== 'completed'} onClick={() => void onOpen(run.id)}>打开<ChevronRight size={15} /></button>
+        </article>
+      ))}</div> : <div className="library-empty"><History size={24} /><span>还没有研究记录</span></div>}
     </div>
   );
 }

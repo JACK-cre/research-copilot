@@ -1,8 +1,7 @@
 import OpenAI from "openai";
 
+import { getEmbeddingIdentity } from "@/lib/platform-config";
 import { hashEmbedding } from "@/lib/text";
-
-const dimensions = Number(process.env.EMBEDDING_DIMENSIONS ?? 384);
 
 function createOpenAIClient(): OpenAI | null {
   if (!process.env.OPENAI_API_KEY) return null;
@@ -12,28 +11,29 @@ function createOpenAIClient(): OpenAI | null {
   });
 }
 
-export function getEmbeddingDimensions(): number {
-  return dimensions;
-}
-
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (!texts.length) return [];
+  const embedding = getEmbeddingIdentity();
   const client = createOpenAIClient();
 
-  if (!client) return texts.map((text) => hashEmbedding(text, dimensions));
+  if (!client) return texts.map((text) => hashEmbedding(text, embedding.dimensions));
 
   try {
     const response = await client.embeddings.create({
-      model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
+      model: embedding.model,
       input: texts,
-      dimensions,
+      dimensions: embedding.dimensions,
     });
-    return response.data
+    const vectors = response.data
       .sort((left, right) => left.index - right.index)
       .map((item) => item.embedding);
+    if (vectors.length !== texts.length || vectors.some((vector) => vector.length !== embedding.dimensions)) {
+      throw new Error('Embedding 服务返回了数量或维度不匹配的向量。');
+    }
+    return vectors;
   } catch (error) {
-    console.warn("Embedding provider failed; using local hashing vectors.", error);
-    return texts.map((text) => hashEmbedding(text, dimensions));
+    const detail = error instanceof Error ? error.message : '未知错误';
+    throw new Error('Embedding 服务调用失败，请检查模型、额度和网络配置：' + detail);
   }
 }
 

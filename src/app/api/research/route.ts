@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { apiErrorStatus, requireDataScope } from '@/lib/auth';
+import {
+  completeResearchRun,
+  createResearchRun,
+  failResearchRun,
+  listResearchRuns,
+} from '@/lib/repository';
 import { runResearchAgent } from '@/lib/research-agent';
 
 export const runtime = 'nodejs';
@@ -20,15 +27,37 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  let runId: string | undefined;
+  let scope: Awaited<ReturnType<typeof requireDataScope>> | undefined;
   try {
     const input = requestSchema.parse(await request.json());
-    return NextResponse.json(await runResearchAgent(input));
+    scope = await requireDataScope();
+    runId = await createResearchRun(scope, input);
+    const result = await runResearchAgent(input, scope, runId);
+    await completeResearchRun(scope, result);
+    return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof z.ZodError
       ? error.issues[0]?.message
       : error instanceof Error
         ? error.message
         : '研究任务执行失败。';
-    return NextResponse.json({ error: message }, { status: 400 });
+    if (scope && runId) await failResearchRun(scope, runId, message).catch(() => undefined);
+    const status = error instanceof z.ZodError
+      ? 400
+      : message.includes('额度')
+        ? 429
+        : apiErrorStatus(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function GET() {
+  try {
+    const scope = await requireDataScope();
+    return NextResponse.json({ runs: await listResearchRuns(scope) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '研究历史读取失败。';
+    return NextResponse.json({ error: message }, { status: apiErrorStatus(error) });
   }
 }
