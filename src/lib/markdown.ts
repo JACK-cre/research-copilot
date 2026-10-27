@@ -19,7 +19,7 @@ export function buildResearchMarkdown(result: ResearchResult): string {
     '# ' + result.title,
     '',
     ...(result.template
-      ? [`> 模板：${result.template.name} · 引用格式：${result.template.citationStyle} · 版本：V${result.version ?? 1}`, '']
+      ? [`> 模板：${result.template.name} · 版本：V${result.version ?? 1}`, '']
       : []),
     '> ' + result.thesis,
     '',
@@ -31,7 +31,7 @@ export function buildResearchMarkdown(result: ResearchResult): string {
       section.citations.length ? '来源：' + citationText(section.citations) : '',
       '',
     ]),
-    '## 参考资料' + (result.template ? `（${result.template.citationStyle}）` : ''),
+    '## 参考资料',
     '',
     ...result.evidence.map((item) => {
       const paper = item.kind === 'paper'

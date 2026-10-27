@@ -1230,6 +1230,14 @@ button {
 .source-status.personal { color: var(--teal); }
 .source-status.platform { color: var(--coral); }
 
+.settings-description {
+  max-width: 760px;
+  margin: -8px 0 20px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
 .settings-form {
   display: grid;
   gap: 14px;
@@ -1245,6 +1253,12 @@ button {
   color: #4f5d59;
   font-size: 10px;
   font-weight: 650;
+}
+
+.settings-form label > small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
 }
 
 .settings-form input,
@@ -1278,7 +1292,85 @@ button {
 
 .settings-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.template-source-grid {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.8fr) minmax(300px, 1.2fr);
+  gap: 12px;
+}
+
+.template-upload {
+  min-height: 122px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  color: var(--teal);
+  background: #f7faf8;
+  border: 1px dashed #9fb9b2;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.template-upload:hover,
+.template-upload.has-file {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+}
+
+.template-upload span,
+.template-upload strong,
+.template-upload small {
+  display: block;
+  min-width: 0;
+}
+
+.template-upload span {
+  max-width: 210px;
+}
+
+.template-upload strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-upload small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.template-note textarea {
+  min-height: 92px;
+}
+
+.analyze-actions {
+  min-height: 36px;
+}
+
+.analysis-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--teal);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.template-editor {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
 }
 
 .danger-text {
@@ -1971,6 +2063,14 @@ button {
 
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .template-source-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .template-upload {
+    min-height: 96px;
   }
 
   .revision-bar {

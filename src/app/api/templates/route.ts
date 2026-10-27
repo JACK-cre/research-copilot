@@ -11,7 +11,7 @@ const templateSchema = z.object({
   kind: z.enum(['report', 'presentation', 'both']),
   description: z.string().trim().max(300).default(''),
   school: z.string().trim().max(120).default(''),
-  citationStyle: z.string().trim().min(1).max(80).default('GB/T 7714-2015'),
+  citationStyle: z.string().trim().min(1).max(80).default('按模板规则'),
   instructions: z.string().trim().min(10).max(10000),
 });
 

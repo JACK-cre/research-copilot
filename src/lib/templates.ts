@@ -106,8 +106,8 @@ export async function createOutputTemplate(scope: DataScope, input: {
   name: string;
   kind: TemplateKind;
   description: string;
-  school: string;
-  citationStyle: string;
+  school?: string;
+  citationStyle?: string;
   instructions: string;
 }): Promise<OutputTemplate> {
   if (scope.mode !== 'cloud') throw new Error('自定义模板仅在私有云模式可用。');
@@ -116,7 +116,7 @@ export async function createOutputTemplate(scope: DataScope, input: {
        (workspace_id, created_by, name, kind, description, school, citation_style, instructions)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, name, kind, description, school, citation_style, instructions, created_at`,
-    [scope.workspaceId, scope.userId, input.name, input.kind, input.description, input.school, input.citationStyle, input.instructions],
+    [scope.workspaceId, scope.userId, input.name, input.kind, input.description, input.school ?? '', input.citationStyle ?? '按模板规则', input.instructions],
   );
   return mapTemplate(result.rows[0]);
 }

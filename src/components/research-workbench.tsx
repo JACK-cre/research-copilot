@@ -581,19 +581,20 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   const [chatModel, setChatModel] = useState('gpt-4.1-mini');
   const [embeddingModel, setEmbeddingModel] = useState('text-embedding-3-small');
   const [savingAi, setSavingAi] = useState(false);
+  const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const [templateNote, setTemplateNote] = useState('');
+  const [analysisMode, setAnalysisMode] = useState<'ai' | 'extracted' | null>(null);
+  const templateFileInput = useRef<HTMLInputElement>(null);
   const [templateDraft, setTemplateDraft] = useState<{
     name: string;
-    school: string;
     kind: TemplateKind;
-    citationStyle: string;
     description: string;
     instructions: string;
   }>({
     name: '',
-    school: '',
     kind: 'both',
-    citationStyle: 'GB/T 7714-2015',
     description: '',
     instructions: '',
   });
@@ -657,6 +658,38 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     onNotice('个人 API Key 已删除');
   }
 
+  async function analyzeTemplate() {
+    if (!templateFile && templateNote.trim().length < 10) {
+      onError('请上传 Word/PDF，或填写至少 10 个字的补充要求。');
+      return;
+    }
+    setAnalyzingTemplate(true);
+    setAnalysisMode(null);
+    onError('');
+    try {
+      const formData = new FormData();
+      if (templateFile) formData.append('file', templateFile);
+      formData.append('note', templateNote);
+      const response = await fetch('/api/templates/analyze', { method: 'POST', body: formData });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '模板识别失败');
+      setTemplateDraft({
+        name: payload.analysis.name,
+        kind: payload.analysis.kind,
+        description: payload.analysis.description,
+        instructions: payload.analysis.instructions,
+      });
+      setAnalysisMode(payload.analysis.mode);
+      onNotice(payload.analysis.mode === 'ai'
+        ? '已从参考资料中提炼模板规则，请确认后保存'
+        : '已提取参考资料；配置个人 AI Key 后可获得更精炼的规则');
+    } catch (analysisError) {
+      onError(analysisError instanceof Error ? analysisError.message : '模板识别失败');
+    } finally {
+      setAnalyzingTemplate(false);
+    }
+  }
+
   async function saveTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSavingTemplate(true);
@@ -669,7 +702,11 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '模板保存失败');
-      setTemplateDraft({ name: '', school: '', kind: 'both', citationStyle: 'GB/T 7714-2015', description: '', instructions: '' });
+      setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '' });
+      setTemplateFile(null);
+      setTemplateNote('');
+      setAnalysisMode(null);
+      if (templateFileInput.current) templateFileInput.current.value = '';
       await onTemplatesChanged();
       onNotice('自定义模板已保存');
     } catch (saveError) {
@@ -694,25 +731,38 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   const customTemplates = templates.filter((template) => !template.isDefault);
   return <div className="settings-layout">
     <section className="settings-section">
-      <div className="settings-title"><KeyRound size={19} /><div><h2>个人 AI 配置</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人 Key' : ai?.activeSource === 'platform' ? '平台模型' : '本地模式'}{ai ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
+      <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
+      <p className="settings-description">连接任意 OpenAI 兼容服务。研究报告、PPT 和模板识别使用对话模型；知识库上传与 RAG 检索使用向量模型。</p>
       <form className="settings-form" onSubmit={saveAi}>
-        <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已保存，留空则保持不变' : 'sk-...'} /></label>
-        <label><span>Base URL</span><input type="url" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} required /></label>
-        <div className="settings-grid"><label><span>生成模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div>
+        <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已加密保存，留空不会修改' : '填写服务商提供的 API Key'} /><small>仅加密保存在你的账户下，不会显示给其他用户。</small></label>
+        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。</small></label>
+        <div className="settings-grid"><label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板。</small></label><label><span>向量模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} placeholder="text-embedding-3-small" required /><small>用于资料入库和语义召回，输出维度需支持 384。</small></label></div>
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
     </section>
 
     <section className="settings-section">
-      <div className="settings-title"><FileText size={19} /><div><h2>输出模板</h2><span>{templates.filter((template) => template.isDefault).length} 个默认 · {customTemplates.length} 个自定义</span></div></div>
+      <div className="settings-title"><FileText size={19} /><div><h2>输出模板</h2><span>{templates.filter((template) => template.isDefault).length} 个内置 · {customTemplates.length} 个自定义</span></div></div>
+      <p className="settings-description">上传学校、期刊或汇报要求作为参考，也可以直接描述规则。系统只提取版式与结构，不会把参考文件的主题内容混进论文。</p>
       <form className="settings-form template-form" onSubmit={saveTemplate}>
-        <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} required /></label><label><span>学校或机构</span><input value={templateDraft.school} onChange={(event) => setTemplateDraft({ ...templateDraft, school: event.target.value })} /></label></div>
-        <div className="settings-grid"><label><span>适用范围</span><select value={templateDraft.kind} onChange={(event) => setTemplateDraft({ ...templateDraft, kind: event.target.value as TemplateKind })}><option value="both">论文与 PPT</option><option value="report">仅论文</option><option value="presentation">仅 PPT</option></select></label><label><span>引用格式</span><input value={templateDraft.citationStyle} onChange={(event) => setTemplateDraft({ ...templateDraft, citationStyle: event.target.value })} required /></label></div>
-        <label><span>模板说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} /></label>
-        <label><span>完整格式要求</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} minLength={10} maxLength={10000} required /></label>
-        <div className="settings-actions"><button className="button primary" disabled={savingTemplate}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}保存模板</button></div>
+        <div className="template-source-grid">
+          <input ref={templateFileInput} type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={(event) => { setTemplateFile(event.target.files?.[0] ?? null); setAnalysisMode(null); }} />
+          <button className={'template-upload ' + (templateFile ? 'has-file' : '')} type="button" onClick={() => templateFileInput.current?.click()}>
+            {templateFile ? <Check size={20} /> : <Upload size={20} />}
+            <span><strong>{templateFile ? templateFile.name : '选择参考文件'}</strong><small>{templateFile ? formatBytes(templateFile.size) : '支持 DOCX、可搜索文字的 PDF，最大 10 MB'}</small></span>
+          </button>
+          <label className="template-note"><span>补充要求</span><textarea value={templateNote} onChange={(event) => { setTemplateNote(event.target.value); setAnalysisMode(null); }} placeholder="例如：正文约 8000 字，三级标题；PPT 控制在 12 页，并保留答辩备注。也可以不上传文件，只在这里描述。" maxLength={5000} /></label>
+        </div>
+        <div className="settings-actions analyze-actions"><button type="button" className="button secondary" disabled={analyzingTemplate} onClick={() => void analyzeTemplate()}>{analyzingTemplate ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{analyzingTemplate ? '正在识别' : '智能提取规则'}</button>{analysisMode ? <span className="analysis-status"><Check size={14} />{analysisMode === 'ai' ? 'AI 已完成提炼' : '已提取原始要求'}</span> : null}</div>
+
+        <div className="template-editor">
+          <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} placeholder="例如：本科毕业论文" required /></label><label><span>适用内容</span><select value={templateDraft.kind} onChange={(event) => setTemplateDraft({ ...templateDraft, kind: event.target.value as TemplateKind })}><option value="both">论文与 PPT</option><option value="report">仅论文/报告</option><option value="presentation">仅 PPT</option></select></label></div>
+          <label><span>用途说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} placeholder="这套模板适合什么任务" /></label>
+          <label><span>识别出的生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="上传文件并智能识别，或直接在这里填写章节、篇幅、版式和展示要求。" minLength={10} maxLength={10000} required /></label>
+        </div>
+        <div className="settings-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 10}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}保存为模板</button></div>
       </form>
-      <div className="template-list">{templates.map((template) => <div className="template-row" key={template.id}><div><strong>{template.name}</strong><span>{template.school ? template.school + ' · ' : ''}{template.citationStyle} · {template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文' : 'PPT'}</span></div>{template.isDefault ? <span className="default-label">默认</span> : <button className="icon-button danger" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button>}</div>)}</div>
+      <div className="template-list">{templates.map((template) => <div className="template-row" key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.description ? ` · ${template.description}` : ''}</span></div>{template.isDefault ? <span className="default-label">内置</span> : <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button>}</div>)}</div>
     </section>
   </div>;
 }

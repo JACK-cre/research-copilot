@@ -24,6 +24,18 @@ const DUMMY_PASSWORD_HASH = 'scrypt-v1$16384$8$1$cmVzZWFyY2gtY29waWxvdCE$1rCLbMA
 
 let lastAuthCleanupAt = 0;
 
+function useSecureSessionCookie(): boolean {
+  const publicUrl = process.env.PUBLIC_APP_URL?.trim();
+  if (publicUrl) {
+    try {
+      return new URL(publicUrl).protocol === 'https:';
+    } catch {
+      // Invalid public URLs are validated by deployment health checks elsewhere.
+    }
+  }
+  return process.env.NODE_ENV === 'production';
+}
+
 export type RegistrationMode = 'open' | 'invite' | 'closed';
 
 export interface AuthUser {
@@ -97,7 +109,7 @@ async function setSessionCookie(token: string): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: useSecureSessionCookie(),
     sameSite: 'lax',
     path: '/',
     maxAge: SESSION_MAX_AGE_SECONDS,
@@ -346,7 +358,7 @@ export async function logoutCurrentSession(): Promise<void> {
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   cookieStore.set(SESSION_COOKIE, '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: useSecureSessionCookie(),
     sameSite: 'lax',
     path: '/',
     maxAge: 0,
