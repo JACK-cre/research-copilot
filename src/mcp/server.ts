@@ -5,7 +5,7 @@ import { resolveAiRuntimeConfig } from '@/lib/ai-settings';
 import { embedTextWithConfig } from '@/lib/embeddings';
 import { fuseKnowledgeResults } from '@/lib/hybrid-search';
 import { searchOpenAlex } from '@/lib/openalex';
-import { isCloudPlatformConfigured } from '@/lib/platform-config';
+import { isHostedPlatformConfigured } from '@/lib/platform-config';
 import { getVectorStore } from '@/lib/vector-store';
 import type { DataScope } from '@/types/platform';
 
@@ -49,7 +49,7 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ query, limit }) => {
-      if (isCloudPlatformConfigured() && !scope) {
+      if (isHostedPlatformConfigured() && !scope) {
         throw new Error('Cloud knowledge search requires an authenticated workspace.');
       }
       const ai = await resolveAiRuntimeConfig(scope);
@@ -80,7 +80,7 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () => {
-      if (isCloudPlatformConfigured() && !scope) {
+      if (isHostedPlatformConfigured() && !scope) {
         throw new Error('Cloud library access requires an authenticated workspace.');
       }
       return toolResult(await getVectorStore().listDocuments(scope));

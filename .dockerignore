@@ -10,4 +10,5 @@ npm-debug.log*
 coverage
 data/library.json
 data/uploads
+data/files
 *.tsbuildinfo

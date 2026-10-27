@@ -5,6 +5,7 @@ out/
 .env.local
 data/library.json
 data/uploads/
+data/files/
 *.log
 .DS_Store
 coverage/

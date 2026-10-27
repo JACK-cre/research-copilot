@@ -1,36 +1,11 @@
 import type { AiCredentialSource, AiRuntimeConfig } from '@/types/platform';
 
-const publicSupabaseVariables = [
-  'NEXT_PUBLIC_SUPABASE_URL',
-  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-] as const;
-
-const privateSupabaseVariables = [
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'SUPABASE_DATABASE_URL',
-] as const;
-
-function hasValues(names: readonly string[]): boolean {
-  return names.every((name) => Boolean(process.env[name]?.trim()));
-}
-
-export function isSupabasePublicConfigured(): boolean {
-  return hasValues(publicSupabaseVariables);
-}
-
-export function isCloudPlatformConfigured(): boolean {
-  return isSupabasePublicConfigured() && hasValues(privateSupabaseVariables);
-}
-
-export function getSupabasePublicConfig(): { url: string; anonKey: string } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  if (!url || !anonKey) throw new Error('Supabase public configuration is incomplete.');
-  return { url, anonKey };
-}
-
 export function getDatabaseUrl(): string | undefined {
-  return process.env.SUPABASE_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim();
+  return process.env.DATABASE_URL?.trim();
+}
+
+export function isHostedPlatformConfigured(): boolean {
+  return Boolean(getDatabaseUrl() && (process.env.AUTH_SECRET?.trim().length ?? 0) >= 32);
 }
 
 export function getEmbeddingDimensions(): number {

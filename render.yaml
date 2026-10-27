@@ -13,6 +13,40 @@ services:
         fromDatabase:
           name: research-copilot-db
           property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: REGISTRATION_MODE
+        value: open
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: OBJECT_STORAGE_DRIVER
+        value: local
+      - key: DATA_DIRECTORY
+        value: /app/data
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_FORCE_PATH_STYLE
+        value: "false"
       - key: OPENAI_BASE_URL
         value: https://api.openai.com/v1
       - key: OPENAI_MODEL
@@ -25,16 +59,6 @@ services:
         value: hybrid
       - key: AI_KEY_ENCRYPTION_SECRET
         generateValue: true
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_DATABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_GITHUB_AUTH_ENABLED
-        value: "false"
       - key: OPENAI_API_KEY
         sync: false
       - key: DAILY_RESEARCH_LIMIT

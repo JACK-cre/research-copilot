@@ -1663,6 +1663,19 @@ button {
   line-height: 1.5;
 }
 
+.auth-hint,
+.auth-closed {
+  margin: -5px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.auth-closed {
+  margin-top: 16px;
+  text-align: center;
+}
+
 .auth-divider {
   position: relative;
   margin: 20px 0;

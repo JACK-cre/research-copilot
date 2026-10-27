@@ -1,164 +1,265 @@
 # 生产部署与长期存储
 
-## 是否需要购买云服务器
+本指南以“轻量应用服务器 + Docker Compose + Caddy”为正式部署方案。仓库中的 `render.yaml` 仅保留给临时预览；Render 免费 Web Service 会休眠，免费 PostgreSQL 有期限，本地文件系统也不能作为长期资料存储，因此不要把免费 Blueprint 当作生产环境。
 
-不需要。当前阶段推荐使用托管服务：
+## 部署后的用户体验
 
-- Render：运行 Next.js Docker 应用
-- Supabase：Auth、PostgreSQL、pgvector、私有 Storage 和数据库备份
-- OpenAI 兼容服务：可选的报告生成与 Embedding
+部署完成并绑定域名后，其他用户只需要打开 `https://你的域名`，在网页注册或登录即可使用。用户不需要 GitHub、Node.js、Docker、数据库，也不需要在自己的电脑执行任何代码。
 
-这种方式不需要维护 Linux、数据库升级、防火墙和磁盘备份。只有在访问量明显增大、需要中国大陆网络优化或有合规要求时，再考虑腾讯云、阿里云或 AWS 自建服务。
-
-Render 免费 Web Service 不会因为 30 天自动删除，但会在空闲后休眠。30 天限制来自免费 Render PostgreSQL。重要资料不应继续保存在免费 Render 数据库中。
-
-## 一、创建 Supabase
-
-1. 在 Supabase 创建项目。数据库区域尽量选择靠近 Render 服务的区域。
-2. 长期保存重要资料时选择付费方案，并确认数据库备份策略。
-3. 打开 **SQL Editor**，按文件名顺序执行 `supabase/migrations/` 中的全部 SQL。
-4. 第一份 SQL 创建用户、工作空间、向量知识库、研究历史和私有文件；第二份 SQL 增加个人 Key、版本迭代、混合检索索引和自定义模板。
-5. 在 **Authentication > URL Configuration** 中设置：
+当前生产结构：
 
 ```text
-Site URL: https://research-copilot-lnry.onrender.com
-Redirect URLs:
-https://research-copilot-lnry.onrender.com/auth/callback
-http://localhost:3000/auth/callback
+Internet
+  -> Caddy :80/:443（自动 HTTPS、gzip/zstd、安全响应头）
+  -> Next.js :3000（不直接暴露公网）
+  -> PostgreSQL + pgvector（不暴露公网）
+  -> 本地持久卷或 S3 兼容对象存储
 ```
 
-6. 邮箱登录默认可用。若要启用 GitHub 登录，在 Supabase Auth Providers 中配置 GitHub OAuth，并将 `NEXT_PUBLIC_GITHUB_AUTH_ENABLED` 设置为 `true`。
+项目已经不依赖 Supabase。账户、会话、工作空间、研究历史、向量、个人 Key 和模板都保存在自己的 PostgreSQL 中。
 
-## 二、获取 Supabase 配置
+## 一、服务器选择
 
-从 **Project Settings > API** 获取：
+试运行推荐：
 
-- Project URL -> `NEXT_PUBLIC_SUPABASE_URL`
-- Anon/Publishable Key -> `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- Service Role Key -> `SUPABASE_SERVICE_ROLE_KEY`
+- 2 核 4 GB 内存
+- 60 GB 以上 SSD
+- Ubuntu 24.04 LTS
+- 香港节点可以免备案快速上线
+- 中国大陆节点访问更稳定，但域名通常需要完成 ICP 备案
 
-从 **Connect > Connection string** 获取 Supavisor Pooler 连接字符串：
+把应用和 PostgreSQL 放在同一台机器时，正式使用建议 4 核 8 GB。不要开放 PostgreSQL 的 `5432` 端口。
 
-- Transaction 或 Session Pooler -> `SUPABASE_DATABASE_URL`
+## 二、服务器准备
 
-不要使用只支持 IPv6、而 Render 无法连接的 Direct Connection。数据库密码中的特殊字符必须进行 URL 编码。
+安装 Docker Engine 和 Docker Compose Plugin，并在安全组中只放行：
 
-`SUPABASE_SERVICE_ROLE_KEY` 和 `SUPABASE_DATABASE_URL` 都是高权限秘密，只能放在 Render Environment，不能提交到 GitHub，也不能加 `NEXT_PUBLIC_` 前缀。
+```text
+22/tcp   SSH，建议限制来源 IP
+80/tcp   HTTP，证书签发和自动跳转
+443/tcp  HTTPS
+443/udp  HTTP/3，可选
+```
 
-## 三、配置 Render
-
-打开 Render 的 `research-copilot` Web Service，进入 **Environment**，填写：
+克隆项目后，在仓库根目录创建 `.env.production`。至少填写：
 
 ```dotenv
-NEXT_PUBLIC_SUPABASE_URL=https://你的项目.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=你的-anon-key
-SUPABASE_SERVICE_ROLE_KEY=你的-service-role-key
-SUPABASE_DATABASE_URL=postgresql://...
-NEXT_PUBLIC_GITHUB_AUTH_ENABLED=false
+SITE_ADDRESS=research.example.com
+PUBLIC_APP_URL=https://research.example.com
+
+POSTGRES_PASSWORD=高强度数据库密码
+AUTH_SECRET=至少32位随机字符串
+AI_KEY_ENCRYPTION_SECRET=另一条至少32位随机字符串
+
+REGISTRATION_MODE=open
+REGISTRATION_INVITE_CODE=
+
+OBJECT_STORAGE_DRIVER=local
+
+AI_ACCESS_MODE=hybrid
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4.1-mini
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=384
 
 DAILY_RESEARCH_LIMIT=20
 DAILY_BYOK_RESEARCH_LIMIT=100
 DAILY_LOCAL_RESEARCH_LIMIT=50
 WORKSPACE_STORAGE_LIMIT_MB=250
-
-AI_ACCESS_MODE=hybrid
-AI_KEY_ENCRYPTION_SECRET=至少32位随机字符串
 ```
 
-四个 Supabase 核心变量必须一起填写。保存后选择 **Manual Deploy > Deploy latest commit**。本项目会在服务端运行时读取公开配置，再安全地传给登录界面；高权限 Key 不会下发到浏览器。
+可以用以下命令生成随机密钥：
 
-部署完成后访问：
-
-```text
-https://research-copilot-lnry.onrender.com/api/health
+```bash
+openssl rand -base64 48
 ```
 
-应返回包含以下字段的 JSON：
+`AUTH_SECRET` 更换后已有登录会话失效；`AI_KEY_ENCRYPTION_SECRET` 更换后已有个人 API Key 无法解密。这两个值都不能提交到 GitHub。
+
+## 三、启动服务
+
+在仓库根目录执行：
+
+```bash
+docker compose \
+  -f deploy/compose.production.yml \
+  --env-file .env.production \
+  up --build -d
+```
+
+应用容器每次启动都会运行 `scripts/migrate.mjs`，按文件名顺序执行 `database/migrations/` 中尚未运行的迁移。迁移成功后才会启动 Next.js。
+
+检查状态：
+
+```bash
+docker compose -f deploy/compose.production.yml --env-file .env.production ps
+curl -fsS https://research.example.com/api/health
+```
+
+健康接口应返回：
 
 ```json
 {"status":"ok","mode":"cloud","storage":"pgvector"}
 ```
 
-确认新用户可以注册、上传、刷新后仍能看到资料和研究历史，再删除或等待旧 Render 免费数据库到期。
+## 四、域名和 HTTPS
 
-## 四、配置 AI
+在域名服务商添加：
 
-应用不配置模型也能运行，但使用本地规则生成报告和本地哈希向量。生产环境建议在 Render Environment 填写：
+```text
+A     research.example.com     服务器公网 IPv4
+AAAA  research.example.com     服务器公网 IPv6（可选）
+```
+
+将 `SITE_ADDRESS` 和 `PUBLIC_APP_URL` 设置为同一个正式 HTTPS 域名。DNS 生效后，Caddy 会自动申请并续期证书。
+
+使用大陆服务器时先完成备案；香港或海外服务器通常不需要 ICP 备案，但大陆访问质量取决于线路。
+
+## 五、注册策略
+
+公开测试：
 
 ```dotenv
-OPENAI_API_KEY=你的服务端密钥
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4.1-mini
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=384
+REGISTRATION_MODE=open
 ```
 
-### Key 与任务额度
+内测邀请码：
 
-- `hybrid`：个人 Key 优先，没有个人 Key 时使用平台 Key。
-- `byok`：只使用用户自己的 Key；未配置时使用无模型本地模式。
-- `platform`：统一使用部署者的 Key，不读取个人配置。
-- `DAILY_RESEARCH_LIMIT`：平台 Key 每用户每日额度，默认 20。
-- `DAILY_BYOK_RESEARCH_LIMIT`：个人 Key 的服务器防滥用上限，默认 100；模型费用和供应商额度由用户承担。
-- `DAILY_LOCAL_RESEARCH_LIMIT`：无模型本地模式上限，默认 50。
+```dotenv
+REGISTRATION_MODE=invite
+REGISTRATION_INVITE_CODE=你的邀请码
+```
 
-Render Blueprint 会自动生成 `AI_KEY_ENCRYPTION_SECRET`。手动配置时使用密码生成器创建至少 32 位随机值。该值用于 AES-256-GCM 加密用户 Key，丢失或更换后已有 Key 将无法解密。Key 不会返回浏览器，也不能写入日志。
+停止新增用户：
 
-自定义 `OPENAI_BASE_URL` 和用户 Base URL 可以连接兼容 OpenAI Chat Completions 与 Embeddings 的供应商。生产环境只接受公网 HTTPS 地址，防止服务端被用于访问内网。
+```dotenv
+REGISTRATION_MODE=closed
+```
 
-注意：
+登录和注册接口有数据库限流。公开注册仍建议在反向代理或云防火墙增加 IP 级限流和异常流量告警。
 
-- Key 只保存在 Render，不写入 GitHub、浏览器或数据库。
-- 启用真实 Embedding 后，应重新上传使用本地哈希向量处理过的资料。系统会忽略模型不一致的旧向量，避免混用两种向量空间。
-- 更换 Embedding 模型或维度必须重新向量化已有资料。
-- Embedding 调用失败时，上传会直接报错而不会写入低质量回退向量；报告生成失败时仍会使用本地生成器完成任务。
-- 知识库检索会融合 pgvector 语义结果与关键词结果；即使 Embedding 服务暂时失败，关键词召回仍可继续工作。
-- 通过 `DAILY_RESEARCH_LIMIT` 限制每名用户每天的研究次数，防止公开站点产生失控费用。
-- `WORKSPACE_STORAGE_LIMIT_MB` 同时统计原始资料和已归档的 Markdown/PPTX。
+## 六、SMTP 密码重置
 
-OpenAI 官方快速入门：https://developers.openai.com/api/docs/quickstart
+配置 SMTP 后，登录页会自动出现“忘记密码”：
 
-## 五、长期备份
+```dotenv
+SMTP_HOST=smtp.example.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=你的SMTP账户
+SMTP_PASSWORD=SMTP授权码
+SMTP_FROM=Research Copilot <no-reply@example.com>
+```
 
-“付费数据库”不等于“永远不会丢数据”。重要资料建议：
+重置令牌只在数据库保存 HMAC，30 分钟失效，成功修改密码后会撤销该用户全部旧会话。未配置 SMTP 时，界面不会显示无效的重置入口。
 
-1. 使用 Supabase 的数据库自动备份。
-2. 每周额外执行一次 `pg_dump`，保存到不同供应商的对象存储。
-3. 定期导出 `research-files` Bucket 到 Cloudflare R2、S3 或本地加密磁盘。
-4. 每月至少做一次恢复测试，而不是只检查备份文件是否存在。
-5. Service Role Key 泄露后立即轮换。
+## 七、对象存储
 
-## 六、本地开发
+### 本地持久卷
 
-只测试基础功能时：
+```dotenv
+OBJECT_STORAGE_DRIVER=local
+```
+
+文件保存在 Docker volume `research_appdata`。适合内测，但必须同时备份该 volume。
+
+### COS、OSS、MinIO 或其他 S3 兼容服务
+
+```dotenv
+OBJECT_STORAGE_DRIVER=s3
+S3_ENDPOINT=https://你的对象存储端点
+S3_REGION=地域标识
+S3_BUCKET=research-files
+S3_ACCESS_KEY_ID=访问密钥
+S3_SECRET_ACCESS_KEY=访问密钥秘密
+S3_FORCE_PATH_STYLE=false
+```
+
+Bucket 必须保持私有。应用上传后只保存对象 Key，下载时生成 60 秒有效的签名 URL。不同服务商对 Endpoint、Region 和 Path Style 的要求不同，以对应服务商当前文档为准。
+
+## 八、AI 配置与费用
+
+- `AI_ACCESS_MODE=hybrid`：个人 Key 优先，没有个人 Key 时使用平台 Key。
+- `AI_ACCESS_MODE=byok`：只允许用户自己的 Key，适合控制平台费用。
+- `AI_ACCESS_MODE=platform`：所有用户使用部署者的 Key。
+
+个人 Key 使用 AES-256-GCM 加密，永远不会返回浏览器。生产环境中的用户 Base URL 只允许公网 HTTPS 地址。
+
+建议公开站点先使用 `byok` 或较低的平台额度，确认真实使用量后再提高。
+
+## 九、日志和监控
+
+查看应用日志：
 
 ```bash
-cp .env.example .env.local
-npm install
-npm run dev
+docker compose -f deploy/compose.production.yml --env-file .env.production logs -f app
 ```
 
-要在本地测试完整云端登录，把 Supabase 变量填入 `.env.local`，并确保 Supabase Redirect URLs 包含 `http://localhost:3000/auth/callback`。
-
-Docker Compose 仍可用于完全本地的应用和 pgvector：
+查看网关或数据库日志：
 
 ```bash
-cp .env.docker.example .env
-docker compose up --build -d
+docker compose -f deploy/compose.production.yml --env-file .env.production logs -f caddy postgres
 ```
 
-Compose 数据保存在 Docker volume `research_pgdata`，但兼容模式没有用户隔离，也不会保存原始文件。
+Compose 已把单个日志文件限制为 10 MB，最多保留 5 个。正式运行建议再接入：
+
+- Sentry：前后端异常和性能
+- 云监控：CPU、内存、磁盘、网络和告警
+- Loki 或云日志服务：集中检索日志
+- Uptime Kuma 或云拨测：定时检查 `/api/health`
+
+## 十、数据库和文件备份
+
+数据库备份示例：
+
+```bash
+docker compose -f deploy/compose.production.yml --env-file .env.production \
+  exec -T postgres pg_dump -U research -d research -Fc > research.dump
+```
+
+至少执行：
+
+1. 每日数据库备份到另一块磁盘或对象存储。
+2. 每日同步本地文件 volume，或者直接使用带版本控制的对象存储。
+3. 每月进行一次实际恢复测试。
+4. 监控服务器磁盘余量和数据库连接数。
+
+仅有备份文件但从未恢复验证，不能视为完成备份。
+
+## 十一、更新和回滚
+
+更新：
+
+```bash
+git pull --ff-only
+docker compose -f deploy/compose.production.yml --env-file .env.production up --build -d
+```
+
+发布前记录当前 Git 提交。需要回滚时切换到上一个已验证提交并重新构建。数据库迁移默认只向前执行，因此破坏性数据库变更需要单独设计回滚脚本。
+
+## 十二、压测
+
+建议从另一台机器使用 k6 或 Artillery，不要在应用服务器本机压测。分开测试：
+
+- 登录、历史记录和模板等普通 API
+- pgvector 与关键词混合检索
+- PDF 上传和解析
+- Markdown/PPTX 导出
+- 模拟 AI 响应的研究任务
+- 少量真实 AI 请求的端到端延迟
+
+大量真实模型请求会产生费用，也会把第三方模型限流误判成自己的服务器瓶颈。重点观察 P50/P95/P99、错误率、CPU、内存、数据库连接和磁盘 IO。
 
 ## 上线检查
 
-- 注册、登录、退出和密码重置可用
-- 用户 A 无法看到用户 B 的文档和研究历史
-- 上传后能下载原始文件，刷新页面后资料仍存在
-- 研究完成后能从“研究历史”重新打开
-- Markdown 和 PPTX 能生成并在私有 Storage 归档
-- 补充修改要求后生成 V2，V1 仍可从研究历史打开
-- 配置个人 Key 后“配置中心”显示个人 Key 和当日用量
-- 新建学校模板后可以在研究简报中选择并用于下一版生成
+- 新用户通过浏览器完成注册、登录和退出
+- 用户 A 无法读取用户 B 的资料、版本、模板和个人 Key
+- 上传文件后刷新页面仍存在，并且可以下载
+- V2 生成后仍可从历史打开 V1
+- Markdown 和 PPTX 可以归档和再次下载
+- 密码重置邮件中的链接使用正式 HTTPS 域名
 - `/api/health` 返回 `mode: cloud`
-- Render 和 Supabase 均配置预算或用量告警
-- 数据库备份和对象存储备份已实际恢复验证
+- PostgreSQL 和对象存储没有开放公共读写
+- 日志中没有密码、个人 API Key 或数据库连接串
+- 数据库和文件备份完成过实际恢复验证

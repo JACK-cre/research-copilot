@@ -16,7 +16,19 @@ export async function GET(
     const document = await getVectorStore().getDocument(id, scope);
     if (!document) return NextResponse.json({ error: '资料不存在。' }, { status: 404 });
     if (!document.storagePath) return NextResponse.json({ error: '该资料没有保存原始文件。' }, { status: 404 });
-    return NextResponse.redirect(await createStoredObjectDownload(scope, document.storagePath));
+    const download = await createStoredObjectDownload(scope, document.storagePath);
+    if (download.kind === 'redirect') return NextResponse.redirect(download.url);
+    const body = download.bytes.buffer.slice(
+      download.bytes.byteOffset,
+      download.bytes.byteOffset + download.bytes.byteLength,
+    ) as ArrayBuffer;
+    return new Response(body, {
+      headers: {
+        'Content-Type': document.type || 'application/octet-stream',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`,
+        'Cache-Control': 'private, no-store',
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : '资料下载失败。';
     return NextResponse.json({ error: message }, { status: apiErrorStatus(error) });

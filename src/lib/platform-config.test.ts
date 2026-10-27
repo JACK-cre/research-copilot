@@ -5,21 +5,19 @@ import {
   getEmbeddingDimensions,
   getResearchLimit,
   getWorkspaceStorageLimitBytes,
-  isCloudPlatformConfigured,
+  isHostedPlatformConfigured,
 } from '@/lib/platform-config';
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('platform configuration', () => {
-  it('requires the complete Supabase configuration before cloud mode', () => {
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://example.supabase.co');
-    vi.stubEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon');
-    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service');
-    vi.stubEnv('SUPABASE_DATABASE_URL', '');
-    expect(isCloudPlatformConfigured()).toBe(false);
+  it('requires a database and auth secret for hosted mode', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://example');
+    vi.stubEnv('AUTH_SECRET', '');
+    expect(isHostedPlatformConfigured()).toBe(false);
 
-    vi.stubEnv('SUPABASE_DATABASE_URL', 'postgresql://example');
-    expect(isCloudPlatformConfigured()).toBe(true);
+    vi.stubEnv('AUTH_SECRET', 'a-secure-auth-secret-with-32-characters');
+    expect(isHostedPlatformConfigured()).toBe(true);
   });
 
   it('converts the workspace quota from megabytes to bytes', () => {

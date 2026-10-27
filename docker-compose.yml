@@ -9,6 +9,24 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://research:${POSTGRES_PASSWORD:-research-local-password}@postgres:5432/research
+      AUTH_SECRET: ${AUTH_SECRET:-replace-with-at-least-32-random-characters}
+      REGISTRATION_MODE: ${REGISTRATION_MODE:-open}
+      REGISTRATION_INVITE_CODE: ${REGISTRATION_INVITE_CODE:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      OBJECT_STORAGE_DRIVER: ${OBJECT_STORAGE_DRIVER:-local}
+      DATA_DIRECTORY: /app/data
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
@@ -16,11 +34,6 @@ services:
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-384}
       AI_ACCESS_MODE: ${AI_ACCESS_MODE:-hybrid}
       AI_KEY_ENCRYPTION_SECRET: ${AI_KEY_ENCRYPTION_SECRET:-replace-with-at-least-32-random-characters}
-      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      SUPABASE_DATABASE_URL: ${SUPABASE_DATABASE_URL:-}
-      NEXT_PUBLIC_GITHUB_AUTH_ENABLED: ${NEXT_PUBLIC_GITHUB_AUTH_ENABLED:-false}
       DAILY_RESEARCH_LIMIT: ${DAILY_RESEARCH_LIMIT:-20}
       DAILY_BYOK_RESEARCH_LIMIT: ${DAILY_BYOK_RESEARCH_LIMIT:-100}
       DAILY_LOCAL_RESEARCH_LIMIT: ${DAILY_LOCAL_RESEARCH_LIMIT:-50}
@@ -30,6 +43,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - research_appdata:/app/data
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 15s
@@ -54,3 +69,4 @@ services:
 
 volumes:
   research_pgdata:
+  research_appdata:

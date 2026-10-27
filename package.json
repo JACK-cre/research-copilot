@@ -2,6 +2,9 @@
   "name": "research-copilot",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "WATCHPACK_POLLING=true next dev --webpack",
     "build": "next build",
@@ -10,14 +13,16 @@
     "docker:down": "docker compose down",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "db:migrate": "node scripts/migrate.mjs",
     "mcp": "tsx src/mcp/stdio.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1157.0",
+    "@aws-sdk/s3-request-presigner": "^3.1157.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@supabase/ssr": "^0.12.7",
-    "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^0.552.0",
     "next": "^16.0.0",
+    "nodemailer": "^10.2.1",
     "openai": "^6.7.0",
     "pg": "^8.16.3",
     "pptxgenjs": "4.0.0",
@@ -28,6 +33,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.6",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",

@@ -225,14 +225,23 @@ export async function listArtifacts(
   }));
 }
 
-export async function getArtifactStoragePath(
+export async function getArtifactStorageRecord(
   scope: DataScope,
   id: string,
-): Promise<string | null> {
+): Promise<{ storagePath: string; fileName: string; contentType: string } | null> {
   if (scope.mode === 'legacy') return null;
-  const result = await getDatabasePool().query<{ storage_path: string }>(
-    'SELECT storage_path FROM artifacts WHERE id = $1 AND workspace_id = $2',
+  const result = await getDatabasePool().query<{
+    storage_path: string;
+    file_name: string;
+    mime_type: string;
+  }>(
+    'SELECT storage_path, file_name, mime_type FROM artifacts WHERE id = $1 AND workspace_id = $2',
     [id, scope.workspaceId],
   );
-  return result.rows[0]?.storage_path ?? null;
+  const row = result.rows[0];
+  return row ? {
+    storagePath: row.storage_path,
+    fileName: row.file_name,
+    contentType: row.mime_type,
+  } : null;
 }

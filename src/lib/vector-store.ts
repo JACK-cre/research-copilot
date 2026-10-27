@@ -252,7 +252,7 @@ class PgVectorStore implements VectorStore {
         await client.query('DELETE FROM document_chunks WHERE document_id = $1 AND workspace_id = $2', [document.id, scope.workspaceId]);
         for (const chunk of chunks) {
           await client.query(
-            'INSERT INTO document_chunks (id, document_id, workspace_id, document_name, content, page, embedding) VALUES ($1, $2, $3, $4, $5, $6, $7::extensions.vector)',
+            'INSERT INTO document_chunks (id, document_id, workspace_id, document_name, content, page, embedding) VALUES ($1, $2, $3, $4, $5, $6, $7::vector)',
             [chunk.id, chunk.documentId, scope.workspaceId, chunk.documentName, chunk.content, chunk.page ?? null, '[' + chunk.embedding.join(',') + ']'],
           );
         }
@@ -310,13 +310,13 @@ class PgVectorStore implements VectorStore {
       score: number;
     }>(scope?.mode === 'cloud'
       ? `SELECT c.id, c.document_id, c.document_name, c.content, c.page,
-                1 - (c.embedding <=> $1::extensions.vector) AS score
+                1 - (c.embedding <=> $1::vector) AS score
          FROM document_chunks c
          JOIN documents d ON d.id = c.document_id AND d.workspace_id = c.workspace_id
          WHERE c.workspace_id = $2
            AND d.embedding_model = $3
            AND d.embedding_dimensions = $4
-         ORDER BY c.embedding <=> $1::extensions.vector
+         ORDER BY c.embedding <=> $1::vector
          LIMIT $5`
       : 'SELECT id, document_id, document_name, content, page, 1 - (embedding <=> $1::vector) AS score FROM knowledge_chunks ORDER BY embedding <=> $1::vector LIMIT $2',
     scope?.mode === 'cloud'
