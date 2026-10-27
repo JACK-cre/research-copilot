@@ -6,7 +6,7 @@ import { calculateKeywordScore, extractKeywordTerms } from '@/lib/hybrid-search'
 import { getDatabaseUrl, getEmbeddingIdentity } from '@/lib/platform-config';
 import { cosineSimilarity } from '@/lib/text';
 import type { DataScope } from '@/types/platform';
-import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
+import type { KnowledgeChunk, KnowledgeChunkPreview, KnowledgeDocument } from '@/types/research';
 
 export interface KnowledgeSearchResult extends KnowledgeChunk {
   score: number;
@@ -21,6 +21,7 @@ export interface EmbeddingDescriptor {
 export interface VectorStore {
   listDocuments(scope?: DataScope): Promise<KnowledgeDocument[]>;
   getDocument(id: string, scope?: DataScope): Promise<KnowledgeDocument | null>;
+  listDocumentChunks(id: string, limit: number, scope?: DataScope): Promise<KnowledgeChunkPreview[]>;
   saveDocument(document: KnowledgeDocument, chunks: KnowledgeChunk[], scope?: DataScope): Promise<void>;
   deleteDocument(id: string, scope?: DataScope): Promise<KnowledgeDocument | null>;
   search(queryVector: number[], limit: number, scope?: DataScope, embedding?: EmbeddingDescriptor): Promise<KnowledgeSearchResult[]>;
@@ -62,6 +63,14 @@ class JsonVectorStore implements VectorStore {
 
   async getDocument(id: string): Promise<KnowledgeDocument | null> {
     return (await this.read()).documents.find((item) => item.id === id) ?? null;
+  }
+
+  async listDocumentChunks(id: string, limit: number): Promise<KnowledgeChunkPreview[]> {
+    return (await this.read()).chunks
+      .filter((item) => item.documentId === id)
+      .sort((left, right) => right.content.length - left.content.length)
+      .slice(0, limit)
+      .map(({ embedding: _embedding, ...chunk }) => chunk);
   }
 
   async saveDocument(document: KnowledgeDocument, chunks: KnowledgeChunk[]): Promise<void> {
@@ -232,6 +241,35 @@ class PgVectorStore implements VectorStore {
       chunkCount: row.chunk_count,
       createdAt: row.created_at.toISOString(),
     } : null;
+  }
+
+  async listDocumentChunks(id: string, limit: number, scope?: DataScope): Promise<KnowledgeChunkPreview[]> {
+    if (scope?.mode !== 'cloud') await this.ensureLegacySchema();
+    const result = await this.pool.query<{
+      id: string;
+      document_id: string;
+      document_name: string;
+      content: string;
+      page: number | null;
+    }>(scope?.mode === 'cloud'
+      ? `SELECT id, document_id, document_name, content, page
+         FROM document_chunks
+         WHERE document_id = $1 AND workspace_id = $2
+         ORDER BY length(content) DESC, id ASC
+         LIMIT $3`
+      : `SELECT id, document_id, document_name, content, page
+         FROM knowledge_chunks
+         WHERE document_id = $1
+         ORDER BY length(content) DESC, id ASC
+         LIMIT $2`,
+    scope?.mode === 'cloud' ? [id, scope.workspaceId, limit] : [id, limit]);
+    return result.rows.map((row) => ({
+      id: row.id,
+      documentId: row.document_id,
+      documentName: row.document_name,
+      content: row.content,
+      page: row.page ?? undefined,
+    }));
   }
 
   async saveDocument(document: KnowledgeDocument, chunks: KnowledgeChunk[], scope?: DataScope): Promise<void> {

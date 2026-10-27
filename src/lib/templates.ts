@@ -121,6 +121,23 @@ export async function createOutputTemplate(scope: DataScope, input: {
   return mapTemplate(result.rows[0]);
 }
 
+export async function updateOutputTemplate(scope: DataScope, id: string, input: {
+  name: string;
+  kind: TemplateKind;
+  description: string;
+  instructions: string;
+}): Promise<OutputTemplate | null> {
+  if (scope.mode !== 'cloud') throw new Error('自定义模板仅在私有云模式可用。');
+  const result = await getDatabasePool().query<TemplateRow>(
+    `UPDATE output_templates
+     SET name = $1, kind = $2, description = $3, instructions = $4
+     WHERE id = $5 AND workspace_id = $6 AND created_by = $7
+     RETURNING id, name, kind, description, school, citation_style, instructions, created_at`,
+    [input.name, input.kind, input.description, input.instructions, id, scope.workspaceId, scope.userId],
+  );
+  return result.rows[0] ? mapTemplate(result.rows[0]) : null;
+}
+
 export async function deleteOutputTemplate(scope: DataScope, id: string): Promise<boolean> {
   if (scope.mode !== 'cloud') return false;
   const result = await getDatabasePool().query(

@@ -59,6 +59,8 @@ export interface KnowledgeChunk {
   embedding: number[];
 }
 
+export type KnowledgeChunkPreview = Omit<KnowledgeChunk, "embedding">;
+
 export interface Evidence {
   id: string;
   kind: "paper" | "knowledge";
@@ -93,6 +95,13 @@ export interface SlideSpec {
   keyPoints: string[];
   citations: string[];
   speakerNotes: string;
+}
+
+export interface GeneratedResearchOutput {
+  title: string;
+  thesis: string;
+  sections: Array<Omit<ReportSection, "id">>;
+  slides: SlideSpec[];
 }
 
 export interface ResearchResult {

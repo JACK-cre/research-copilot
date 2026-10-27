@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import OpenAI from 'openai';
 import { z } from 'zod';
 
+import { buildLocalRevision } from '@/lib/local-revision';
 import { getPlatformAiRuntimeConfig } from '@/lib/platform-config';
 import { DEFAULT_OUTPUT_TEMPLATES } from '@/lib/templates';
 import { excerpt } from '@/lib/text';
@@ -16,6 +17,7 @@ import type {
 } from '@/types/platform';
 import type {
   Evidence,
+  GeneratedResearchOutput,
   Paper,
   ReportSection,
   ResearchRequest,
@@ -44,7 +46,7 @@ const generatedOutputSchema = z.object({
   ).min(5).max(14),
 });
 
-type GeneratedOutput = z.infer<typeof generatedOutputSchema>;
+type GeneratedOutput = GeneratedResearchOutput;
 
 function createSearchQueries(request: ResearchRequest): string[] {
   const base = request.topic.trim();
@@ -328,6 +330,8 @@ async function reviseWithModel(
     target === 'report' ? 'Revise the report only. Keep the slide plan unchanged.' : '',
     target === 'slides' ? 'Revise the slide plan only. Keep the report unchanged.' : '',
     'User revision instruction: ' + instruction,
+    'The revision instruction is binding. Make substantive changes to the requested deliverable; never return unchanged wording or merely append a note saying that a revision was requested.',
+    'When the user asks for richer or more detailed content, expand multiple relevant sections using the supplied evidence and add useful analytical perspectives.',
     'Output template: ' + template.name,
     'Reference handling: cite evidence IDs and follow any reference rules in the template.',
     'Template requirements: ' + template.instructions,
@@ -360,37 +364,22 @@ async function reviseWithModel(
       generated.thesis = previousOutput.thesis;
       generated.sections = previousOutput.sections;
     }
+    const changed = target === 'report'
+      ? JSON.stringify(generated.sections) !== JSON.stringify(previousOutput.sections)
+        || generated.title !== previousOutput.title
+        || generated.thesis !== previousOutput.thesis
+      : target === 'slides'
+        ? JSON.stringify(generated.slides) !== JSON.stringify(previousOutput.slides)
+        : JSON.stringify(generated) !== JSON.stringify(previousOutput);
+    if (!changed) {
+      console.warn('Model returned an unchanged revision; using local evidence expansion.');
+      return null;
+    }
     return generated;
   } catch (error) {
     console.warn('Model revision failed; using local revision.', error);
     return null;
   }
-}
-
-function localRevision(
-  previous: ResearchResult,
-  instruction: string,
-  target: RevisionTarget,
-): GeneratedOutput {
-  const output = previousGeneratedOutput(previous);
-  const citations = previous.evidence.slice(0, 3).map((item) => item.id);
-  if (target !== 'slides') {
-    output.sections = [...output.sections.slice(0, 7), {
-      title: '本轮补充与修订',
-      content: '本版根据补充要求进行调整：' + instruction + '。当前为本地修订模式，关键结论仍需结合已有证据人工复核。',
-      citations,
-    }];
-  }
-  if (target !== 'report') {
-    output.slides = [...output.slides.slice(0, -1).slice(0, 12), {
-      type: 'evidence',
-      title: '本轮补充重点',
-      keyPoints: [instruction],
-      citations,
-      speakerNotes: '说明本轮补充要求以及对应修改。',
-    }, ...output.slides.slice(-1)];
-  }
-  return output;
 }
 
 export async function refineResearchAgent(input: {
@@ -408,7 +397,7 @@ export async function refineResearchAgent(input: {
     input.ai,
     input.template,
   );
-  const generated = modelOutput ?? localRevision(input.previous, input.instruction, input.target);
+  const generated = modelOutput ?? buildLocalRevision(input.previous, input.instruction, input.target);
   const evidenceIds = new Set(input.previous.evidence.map((item) => item.id));
   return {
     ...input.previous,

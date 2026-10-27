@@ -4,10 +4,12 @@ import {
   ArrowUpRight,
   BookOpen,
   Check,
+  ChevronDown,
   ChevronRight,
   Cloud,
   Database,
   Download,
+  Eye,
   FileText,
   FlaskConical,
   History,
@@ -17,6 +19,7 @@ import {
   LoaderCircle,
   LogOut,
   PanelLeft,
+  Pencil,
   Presentation,
   Search,
   Settings,
@@ -28,6 +31,7 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
+  KnowledgeChunkPreview,
   KnowledgeDocument,
   ResearchRequest,
   ResearchResult,
@@ -209,7 +213,9 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       setRequest(payload.request);
       setArtifacts([]);
       setRevisionInstruction('');
-      setNotice('已生成 V' + (payload.version ?? 1) + '，上一版仍保留在研究历史中');
+      setNotice(payload.mode === 'model'
+        ? '已使用模型生成 V' + (payload.version ?? 1) + '，上一版仍保留在研究历史中'
+        : '已生成 V' + (payload.version ?? 1) + ' 的本地证据扩展；复杂语义重写请先在配置中心连接模型');
       void loadHistory();
     } catch (refineError) {
       setError(refineError instanceof Error ? refineError.message : '版本修改失败');
@@ -483,7 +489,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
             </aside>
           </div>
         ) : view === 'library' ? (
-          <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} cloudEnabled={cloudEnabled} />
+          <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} onError={setError} cloudEnabled={cloudEnabled} />
         ) : view === 'history' ? <HistoryView runs={runs} onOpen={openRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
       </section>
     </main>
@@ -537,7 +543,33 @@ function Slides({ result }: { result: ResearchResult }) {
   return <div className="slide-grid">{result.slides.map((slide, index) => <article className={'slide-preview slide-' + slide.type} key={index}><div className="slide-top"><span>{String(index + 1).padStart(2, '0')}</span><Presentation size={14} /></div><h3>{slide.title}</h3><ul>{slide.keyPoints.slice(0, 5).map((point) => <li key={point}>{point}</li>)}</ul><footer>{citationText(slide.citations)}</footer></article>)}</div>;
 }
 
-function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, cloudEnabled }: { documents: KnowledgeDocument[]; uploading: boolean; fileInput: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | null) => void; onDelete: (id: string) => Promise<void>; cloudEnabled: boolean }) {
+function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onError, cloudEnabled }: { documents: KnowledgeDocument[]; uploading: boolean; fileInput: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | null) => void; onDelete: (id: string) => Promise<void>; onError: (message: string) => void; cloudEnabled: boolean }) {
+  const [expandedDocumentId, setExpandedDocumentId] = useState<string | null>(null);
+  const [loadingEvidenceId, setLoadingEvidenceId] = useState<string | null>(null);
+  const [evidenceByDocument, setEvidenceByDocument] = useState<Record<string, KnowledgeChunkPreview[]>>({});
+
+  async function toggleEvidence(documentId: string) {
+    if (expandedDocumentId === documentId) {
+      setExpandedDocumentId(null);
+      return;
+    }
+    setExpandedDocumentId(documentId);
+    if (evidenceByDocument[documentId]) return;
+    setLoadingEvidenceId(documentId);
+    onError('');
+    try {
+      const response = await fetch('/api/library/' + documentId + '/evidence', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '证据片段读取失败');
+      setEvidenceByDocument((current) => ({ ...current, [documentId]: payload.chunks ?? [] }));
+    } catch (loadError) {
+      onError(loadError instanceof Error ? loadError.message : '证据片段读取失败');
+      setExpandedDocumentId(null);
+    } finally {
+      setLoadingEvidenceId(null);
+    }
+  }
+
   return (
     <div className="library-layout">
       <input ref={fileInput} hidden type="file" accept=".pdf,.md,.txt,application/pdf,text/plain,text/markdown" multiple onChange={(event) => void onUpload(event.target.files)} />
@@ -548,7 +580,7 @@ function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, clou
       </section>
       <section className="library-table-section">
         <div className="section-title"><h3>已索引资料</h3><span>{documents.length} 份文档</span></div>
-        {documents.length ? <div className="library-table"><div className="library-head"><span>名称</span><span>大小</span><span>分块</span><span>写入时间</span></div>{documents.map((document) => <div className="library-row" key={document.id}><span className="document-name"><FileText size={16} />{document.name}</span><span>{formatBytes(document.size)}</span><span>{document.chunkCount}</span><span>{new Date(document.createdAt).toLocaleString('zh-CN')}</span><span className="row-actions">{cloudEnabled ? <a className="icon-button" href={'/api/library/' + document.id} title="下载原文件" aria-label={'下载 ' + document.name}><Download size={15} /></a> : <ChevronRight size={15} />}<button className="icon-button danger" onClick={() => void onDelete(document.id)} title="删除资料" aria-label={'删除 ' + document.name}><Trash2 size={15} /></button></span></div>)}</div> : <div className="library-empty"><BookOpen size={24} /><span>知识库为空</span></div>}
+        {documents.length ? <div className="library-table"><div className="library-head"><span>名称</span><span>大小</span><span>分块</span><span>写入时间</span></div>{documents.map((document) => <div className="library-entry" key={document.id}><div className="library-row"><span className="document-name"><FileText size={16} />{document.name}</span><span>{formatBytes(document.size)}</span><span>{document.chunkCount}</span><span>{new Date(document.createdAt).toLocaleString('zh-CN')}</span><span className="row-actions"><button className="icon-button" type="button" onClick={() => void toggleEvidence(document.id)} title="查看关键证据段落" aria-label={'查看 ' + document.name + ' 的证据片段'}>{loadingEvidenceId === document.id ? <LoaderCircle className="spin" size={15} /> : expandedDocumentId === document.id ? <ChevronDown size={15} /> : <Eye size={15} />}</button>{cloudEnabled ? <a className="icon-button" href={'/api/library/' + document.id} title="下载原文件" aria-label={'下载 ' + document.name}><Download size={15} /></a> : null}<button className="icon-button danger" type="button" onClick={() => void onDelete(document.id)} title="删除资料" aria-label={'删除 ' + document.name}><Trash2 size={15} /></button></span></div>{expandedDocumentId === document.id ? <div className="document-evidence-panel"><header><div><strong>关键证据段落</strong><span>从 {document.chunkCount} 个索引分块中按信息量展示</span></div><small>{evidenceByDocument[document.id]?.length ?? 0} 个片段</small></header>{loadingEvidenceId === document.id ? <div className="evidence-loading"><LoaderCircle className="spin" size={18} />正在读取索引</div> : evidenceByDocument[document.id]?.length ? <div className="document-chunks">{evidenceByDocument[document.id].map((chunk, index) => <article key={chunk.id}><div><span>片段 {String(index + 1).padStart(2, '0')}</span>{chunk.page ? <small>第 {chunk.page} 页</small> : null}</div><p>{chunk.content}</p></article>)}</div> : <div className="evidence-loading">当前文档没有可展示的文本片段</div>}</div> : null}</div>)}</div> : <div className="library-empty"><BookOpen size={24} /><span>知识库为空</span></div>}
       </section>
     </div>
   );
@@ -586,7 +618,9 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [templateNote, setTemplateNote] = useState('');
   const [analysisMode, setAnalysisMode] = useState<'ai' | 'extracted' | null>(null);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const templateFileInput = useRef<HTMLInputElement>(null);
+  const templateEditor = useRef<HTMLDivElement>(null);
   const [templateDraft, setTemplateDraft] = useState<{
     name: string;
     kind: TemplateKind;
@@ -695,8 +729,8 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     setSavingTemplate(true);
     onError('');
     try {
-      const response = await fetch('/api/templates', {
-        method: 'POST',
+      const response = await fetch(editingTemplateId ? '/api/templates/' + editingTemplateId : '/api/templates', {
+        method: editingTemplateId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(templateDraft),
       });
@@ -706,9 +740,10 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       setTemplateFile(null);
       setTemplateNote('');
       setAnalysisMode(null);
+      setEditingTemplateId(null);
       if (templateFileInput.current) templateFileInput.current.value = '';
       await onTemplatesChanged();
-      onNotice('自定义模板已保存');
+      onNotice(editingTemplateId ? '模板修改已保存' : '自定义模板已保存并会在后续登录中保留');
     } catch (saveError) {
       onError(saveError instanceof Error ? saveError.message : '模板保存失败');
     } finally {
@@ -726,6 +761,26 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     }
     await onTemplatesChanged();
     onNotice('自定义模板已删除');
+  }
+
+  function editTemplate(template: OutputTemplate) {
+    setTemplateDraft({
+      name: template.isDefault ? template.name + '（自定义）' : template.name,
+      kind: template.kind,
+      description: template.description,
+      instructions: template.instructions,
+    });
+    setTemplateFile(null);
+    setTemplateNote('');
+    setAnalysisMode(null);
+    setEditingTemplateId(template.isDefault ? null : template.id);
+    if (templateFileInput.current) templateFileInput.current.value = '';
+    window.requestAnimationFrame(() => templateEditor.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }
+
+  function cancelTemplateEdit() {
+    setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '' });
+    setEditingTemplateId(null);
   }
 
   const customTemplates = templates.filter((template) => !template.isDefault);
@@ -755,14 +810,14 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
         </div>
         <div className="settings-actions analyze-actions"><button type="button" className="button secondary" disabled={analyzingTemplate} onClick={() => void analyzeTemplate()}>{analyzingTemplate ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{analyzingTemplate ? '正在识别' : '智能提取规则'}</button>{analysisMode ? <span className="analysis-status"><Check size={14} />{analysisMode === 'ai' ? 'AI 已完成提炼' : '已提取原始要求'}</span> : null}</div>
 
-        <div className="template-editor">
+        <div className="template-editor" ref={templateEditor}>
           <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} placeholder="例如：本科毕业论文" required /></label><label><span>适用内容</span><select value={templateDraft.kind} onChange={(event) => setTemplateDraft({ ...templateDraft, kind: event.target.value as TemplateKind })}><option value="both">论文与 PPT</option><option value="report">仅论文/报告</option><option value="presentation">仅 PPT</option></select></label></div>
           <label><span>用途说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} placeholder="这套模板适合什么任务" /></label>
           <label><span>识别出的生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="上传文件并智能识别，或直接在这里填写章节、篇幅、版式和展示要求。" minLength={10} maxLength={10000} required /></label>
         </div>
-        <div className="settings-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 10}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}保存为模板</button></div>
+        <div className="settings-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 10}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{editingTemplateId ? '保存修改' : '保存为模板'}</button>{editingTemplateId ? <button className="button secondary" type="button" onClick={cancelTemplateEdit}>取消编辑</button> : null}</div>
       </form>
-      <div className="template-list">{templates.map((template) => <div className="template-row" key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.description ? ` · ${template.description}` : ''}</span></div>{template.isDefault ? <span className="default-label">内置</span> : <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button>}</div>)}</div>
+      <div className="template-list">{templates.map((template) => <div className={'template-row ' + (editingTemplateId === template.id ? 'editing' : '')} key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.description ? ` · ${template.description}` : ''}</span></div><div className="template-row-actions">{template.isDefault ? <span className="default-label">内置</span> : null}<button className="icon-button" type="button" onClick={() => editTemplate(template)} title={template.isDefault ? '复制为自定义模板' : '编辑模板'} aria-label={(template.isDefault ? '复制并编辑 ' : '编辑 ') + template.name}><Pencil size={15} /></button>{!template.isDefault ? <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button> : null}</div></div>)}</div>
     </section>
   </div>;
 }
