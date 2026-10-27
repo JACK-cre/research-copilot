@@ -23,7 +23,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '缺少可导出的研究文稿。' }, { status: 400 });
     }
 
-    const fileName = 'research-report.md';
+    const fileName = `research-report-v${result.version ?? 1}.md`;
     const contentType = 'text/markdown';
     const bytes = new TextEncoder().encode(buildResearchMarkdown(result));
     if (scope.mode === 'cloud') {

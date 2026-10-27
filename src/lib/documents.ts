@@ -3,8 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { extractText } from 'unpdf';
 
 import { embedTexts } from '@/lib/embeddings';
-import { getEmbeddingIdentity } from '@/lib/platform-config';
+import { getPlatformAiRuntimeConfig } from '@/lib/platform-config';
 import { chunkText, normalizeWhitespace } from '@/lib/text';
+import type { AiRuntimeConfig } from '@/types/platform';
 import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -32,7 +33,10 @@ async function parseFileText(file: File): Promise<string> {
   return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
 }
 
-export async function parseUpload(file: File): Promise<ParsedUpload> {
+export async function parseUpload(
+  file: File,
+  ai: AiRuntimeConfig = getPlatformAiRuntimeConfig(),
+): Promise<ParsedUpload> {
   if (!file.name) throw new Error('文件名不能为空。');
   if (file.size === 0) throw new Error('文件内容为空。');
   if (file.size > MAX_FILE_BYTES) throw new Error('单个文件不能超过 15 MB。');
@@ -45,9 +49,8 @@ export async function parseUpload(file: File): Promise<ParsedUpload> {
   if (text.length < 40) throw new Error('没有从文件中提取到足够的文本。');
 
   const parts = chunkText(text);
-  const vectors = await embedTexts(parts);
+  const vectors = await embedTexts(parts, ai);
   const documentId = randomUUID();
-  const embedding = getEmbeddingIdentity();
   const document: KnowledgeDocument = {
     id: documentId,
     name: file.name.replace(/[\\/]/g, '_'),
@@ -57,8 +60,8 @@ export async function parseUpload(file: File): Promise<ParsedUpload> {
     createdAt: new Date().toISOString(),
     status: 'ready',
     sha256: createHash('sha256').update(bytes).digest('hex'),
-    embeddingModel: embedding.model,
-    embeddingDimensions: embedding.dimensions,
+    embeddingModel: ai.embeddingIdentity,
+    embeddingDimensions: ai.embeddingDimensions,
   };
   const chunks: KnowledgeChunk[] = parts.map((content, index) => ({
     id: documentId + ':' + index,

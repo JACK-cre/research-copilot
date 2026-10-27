@@ -10,6 +10,10 @@
 - Supabase 邮箱/GitHub 登录、私有工作空间和行级安全策略
 - 原始资料、Markdown、PPTX 使用私有对象存储长期归档
 - 研究任务、检索证据、报告和幻灯片大纲可持久化并从历史记录恢复
+- 研究结果可继续补充要求，按版本保留论文、PPT 或完整交付物的每次修改
+- RAG 同时执行向量语义召回与关键词召回，并使用融合排序提高稳定性
+- 内置论文、毕业论文、技术报告和答辩模板，支持保存学校自定义格式
+- 用户可加密保存自己的 OpenAI 兼容 API Key，个人 Key 优先于平台 Key
 - 通过 MCP 工具执行论文检索、知识库检索和资料列表查询
 - 生成结构化研究综述、证据引用、幻灯片大纲和讲稿
 - 导出 Markdown 报告和真正的 `.pptx` 文件
@@ -40,7 +44,7 @@ Render 配置默认选择免费规格，适合演示。长期使用推荐让 Ren
 - **兼容模式**：未填写完整 Supabase 配置时，保持原有单用户体验；本地使用 JSON 或 `DATABASE_URL`。
 - **私有云模式**：同时配置 Supabase URL、Anon Key、Service Role Key 和数据库连接后，强制登录并启用工作空间隔离、原文件保存、研究历史和成品归档。
 
-数据库结构和 RLS 策略位于 `supabase/migrations/202610270001_research_platform.sql`。
+数据库结构和 RLS 策略位于 `supabase/migrations/`，部署时按文件名顺序执行全部 SQL。
 
 ## 模型配置
 
@@ -52,6 +56,8 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=384
+AI_ACCESS_MODE=hybrid
+AI_KEY_ENCRYPTION_SECRET=至少32位随机字符串
 ```
 
 `OPENAI_BASE_URL` 可指向兼容 OpenAI Chat Completions 和 Embeddings 的服务。报告生成失败时会回退到本地生成器；Embedding 失败时上传会停止并显示错误，避免把不同算法的向量混入同一知识库。
@@ -59,6 +65,8 @@ EMBEDDING_DIMENSIONS=384
 知识库检索只使用与当前 `EMBEDDING_MODEL` 和维度一致的资料。启用真实 Embedding 或更换模型后，请重新上传旧资料。
 
 API Key 只允许放在服务端环境变量中，不要使用 `NEXT_PUBLIC_` 前缀。OpenAI API 计费与 ChatGPT 订阅相互独立，建议同时设置平台预算告警和应用内每日任务额度。
+
+`AI_ACCESS_MODE=hybrid` 时，已配置个人 Key 的用户使用自己的模型额度；其他用户使用平台 Key。`byok` 强制只允许个人 Key，`platform` 则忽略个人配置。个人 Key 使用 AES-256-GCM 加密，`AI_KEY_ENCRYPTION_SECRET` 一旦投入使用不能随意更换。
 
 ## 使用 pgvector
 

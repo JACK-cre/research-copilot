@@ -27,6 +27,7 @@ function addFrame(
   title: string,
   index: number,
   citations: string[],
+  citationStyle: string,
 ) {
   slide.background = { color: COLORS.paper };
   slide.addShape(pptx.ShapeType.rect, {
@@ -60,7 +61,7 @@ function addFrame(
     margin: 0,
   });
   if (citations.length) {
-    slide.addText('Sources  ' + citations.join(' · '), {
+    slide.addText(citationStyle + '  ' + citations.join(' · '), {
       x: 0.72,
       y: 7.08,
       w: 11.85,
@@ -233,8 +234,20 @@ export async function buildPresentation(result: ResearchResult): Promise<Uint8Ar
         color: '91A19C',
         margin: 0,
       });
+      if (result.template) {
+        slide.addText(`${result.template.name} · V${result.version ?? 1}`, {
+          x: 8.4,
+          y: 6.24,
+          w: 3.7,
+          h: 0.3,
+          fontSize: 10,
+          align: 'right',
+          color: '91A19C',
+          margin: 0,
+        });
+      }
     } else {
-      addFrame(pptx, slide, spec.title, slideNumber, spec.citations);
+      addFrame(pptx, slide, spec.title, slideNumber, spec.citations, result.template?.citationStyle ?? 'Sources');
       if (spec.type === 'comparison') addComparison(pptx, slide, spec);
       else if (spec.type === 'roadmap') addRoadmap(pptx, slide, spec);
       else addBullets(slide, spec.keyPoints);

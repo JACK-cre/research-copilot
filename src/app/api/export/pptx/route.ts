@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       if (!await hasWorkspaceStorageCapacity(scope, bytes.byteLength)) {
         return NextResponse.json({ error: '工作空间容量不足，请删除旧资料或提高存储额度。' }, { status: 413 });
       }
-      const fileName = 'research-briefing.pptx';
+      const fileName = `research-briefing-v${result.version ?? 1}.pptx`;
       const contentType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
       let storagePath: string | undefined;
       try {
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     return new Response(body, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        'Content-Disposition': 'attachment; filename="research-briefing.pptx"',
+        'Content-Disposition': `attachment; filename="research-briefing-v${result.version ?? 1}.pptx"`,
         'Cache-Control': 'no-store',
       },
     });

@@ -1,3 +1,9 @@
+import type {
+  AiCredentialSource,
+  OutputTemplateSnapshot,
+  RevisionTarget,
+} from "@/types/platform";
+
 export type DeliverableType = "survey" | "proposal" | "briefing";
 
 export interface ResearchRequest {
@@ -9,6 +15,7 @@ export interface ResearchRequest {
   paperCount: number;
   includeExternal: boolean;
   includeLibrary: boolean;
+  templateId?: string;
 }
 
 export interface Author {
@@ -61,6 +68,7 @@ export interface Evidence {
   year?: number;
   page?: number;
   score: number;
+  retrievalRoutes?: Array<"semantic" | "keyword">;
 }
 
 export interface ReportSection {
@@ -100,4 +108,10 @@ export interface ResearchResult {
   slides: SlideSpec[];
   mode: "model" | "local";
   warnings: string[];
+  aiSource?: AiCredentialSource;
+  template?: OutputTemplateSnapshot;
+  version?: number;
+  parentRunId?: string;
+  revisionInstruction?: string;
+  revisionTarget?: RevisionTarget;
 }

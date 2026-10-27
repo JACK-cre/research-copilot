@@ -10,10 +10,18 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     if (isCloudPlatformConfigured()) {
-      const result = await getDatabasePool().query<{ runs: string | null }>(
-        "SELECT to_regclass('public.research_runs')::text AS runs",
+      const result = await getDatabasePool().query<{
+        runs: string | null;
+        ai_settings: string | null;
+        templates: string | null;
+      }>(
+        `SELECT to_regclass('public.research_runs')::text AS runs,
+                to_regclass('public.user_ai_settings')::text AS ai_settings,
+                to_regclass('public.output_templates')::text AS templates`,
       );
-      if (!result.rows[0]?.runs) throw new Error('Supabase migration has not been applied.');
+      if (!result.rows[0]?.runs || !result.rows[0]?.ai_settings || !result.rows[0]?.templates) {
+        throw new Error('Supabase migrations have not been fully applied.');
+      }
     } else if (getDatabaseUrl()) await getDatabasePool().query('SELECT 1');
     else await getVectorStore().listDocuments();
     return NextResponse.json({

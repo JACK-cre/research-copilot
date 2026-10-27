@@ -1,3 +1,5 @@
+import type { AiCredentialSource, AiRuntimeConfig } from '@/types/platform';
+
 const publicSupabaseVariables = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
@@ -40,17 +42,51 @@ export function getEmbeddingDimensions(): number {
 }
 
 export function getEmbeddingIdentity(): { model: string; dimensions: number } {
+  const ai = getPlatformAiRuntimeConfig();
   return {
-    model: process.env.OPENAI_API_KEY
-      ? process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small'
+    model: ai.embeddingIdentity,
+    dimensions: ai.embeddingDimensions,
+  };
+}
+
+export function getAiAccessMode(): 'hybrid' | 'byok' | 'platform' {
+  const value = process.env.AI_ACCESS_MODE?.trim().toLowerCase();
+  return value === 'byok' || value === 'platform' ? value : 'hybrid';
+}
+
+export function createEmbeddingIdentity(baseURL: string, model: string): string {
+  return 'provider:' + baseURL.replace(/\/+$/, '') + '|' + model;
+}
+
+export function getPlatformAiRuntimeConfig(): AiRuntimeConfig {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const baseURL = (process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const embeddingModel = process.env.EMBEDDING_MODEL?.trim() || 'text-embedding-3-small';
+  const embeddingDimensions = getEmbeddingDimensions();
+  return {
+    source: apiKey ? 'platform' : 'local',
+    apiKey: apiKey || undefined,
+    baseURL,
+    chatModel: process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
+    embeddingModel: apiKey ? embeddingModel : 'local-hash-v1',
+    embeddingDimensions,
+    embeddingIdentity: apiKey
+      ? createEmbeddingIdentity(baseURL, embeddingModel)
       : 'local-hash-v1',
-    dimensions: getEmbeddingDimensions(),
   };
 }
 
 export function getDailyResearchLimit(): number {
   const parsed = Number(process.env.DAILY_RESEARCH_LIMIT ?? 20);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 20;
+}
+
+export function getResearchLimit(source: AiCredentialSource): number {
+  if (source === 'platform') return getDailyResearchLimit();
+  const variable = source === 'personal' ? 'DAILY_BYOK_RESEARCH_LIMIT' : 'DAILY_LOCAL_RESEARCH_LIMIT';
+  const fallback = source === 'personal' ? 100 : 50;
+  const parsed = Number(process.env[variable] ?? fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 export function getWorkspaceStorageLimitBytes(): number {

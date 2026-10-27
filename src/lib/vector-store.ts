@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getDatabasePool } from '@/lib/db';
+import { calculateKeywordScore, extractKeywordTerms } from '@/lib/hybrid-search';
 import { getDatabaseUrl, getEmbeddingIdentity } from '@/lib/platform-config';
 import { cosineSimilarity } from '@/lib/text';
 import type { DataScope } from '@/types/platform';
@@ -9,6 +10,12 @@ import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
 
 export interface KnowledgeSearchResult extends KnowledgeChunk {
   score: number;
+  routes?: Array<'semantic' | 'keyword'>;
+}
+
+export interface EmbeddingDescriptor {
+  model: string;
+  dimensions: number;
 }
 
 export interface VectorStore {
@@ -16,7 +23,8 @@ export interface VectorStore {
   getDocument(id: string, scope?: DataScope): Promise<KnowledgeDocument | null>;
   saveDocument(document: KnowledgeDocument, chunks: KnowledgeChunk[], scope?: DataScope): Promise<void>;
   deleteDocument(id: string, scope?: DataScope): Promise<KnowledgeDocument | null>;
-  search(queryVector: number[], limit: number, scope?: DataScope): Promise<KnowledgeSearchResult[]>;
+  search(queryVector: number[], limit: number, scope?: DataScope, embedding?: EmbeddingDescriptor): Promise<KnowledgeSearchResult[]>;
+  lexicalSearch(query: string, limit: number, scope?: DataScope): Promise<KnowledgeSearchResult[]>;
 }
 
 interface JsonDatabase {
@@ -87,7 +95,19 @@ class JsonVectorStore implements VectorStore {
       .map((chunk) => ({
         ...chunk,
         score: cosineSimilarity(queryVector, chunk.embedding),
+        routes: ['semantic' as const],
       }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, limit);
+  }
+
+  async lexicalSearch(query: string, limit: number): Promise<KnowledgeSearchResult[]> {
+    const terms = extractKeywordTerms(query);
+    if (!terms.length) return [];
+    const database = await this.read();
+    return database.chunks
+      .map((chunk) => ({ ...chunk, score: calculateKeywordScore(chunk.content, terms), routes: ['keyword' as const] }))
+      .filter((chunk) => chunk.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, limit);
   }
@@ -270,8 +290,13 @@ class PgVectorStore implements VectorStore {
     return document;
   }
 
-  async search(queryVector: number[], limit: number, scope?: DataScope): Promise<KnowledgeSearchResult[]> {
-    const embedding = getEmbeddingIdentity();
+  async search(
+    queryVector: number[],
+    limit: number,
+    scope?: DataScope,
+    requestedEmbedding?: EmbeddingDescriptor,
+  ): Promise<KnowledgeSearchResult[]> {
+    const embedding = requestedEmbedding ?? getEmbeddingIdentity();
     if (scope?.mode === 'cloud' && embedding.dimensions !== 384) {
       throw new Error('云端向量表当前固定为 384 维，请将 EMBEDDING_DIMENSIONS 设置为 384。');
     }
@@ -305,7 +330,49 @@ class PgVectorStore implements VectorStore {
       page: row.page ?? undefined,
       embedding: [],
       score: Number(row.score),
+      routes: ['semantic'],
     }));
+  }
+
+  async lexicalSearch(query: string, limit: number, scope?: DataScope): Promise<KnowledgeSearchResult[]> {
+    const terms = extractKeywordTerms(query);
+    if (!terms.length) return [];
+    if (scope?.mode !== 'cloud') await this.ensureLegacySchema();
+    const patterns = terms.map((term) => '%' + term + '%');
+    const result = await this.pool.query<{
+      id: string;
+      document_id: string;
+      document_name: string;
+      content: string;
+      page: number | null;
+    }>(scope?.mode === 'cloud'
+      ? `SELECT id, document_id, document_name, content, page
+         FROM document_chunks
+         WHERE workspace_id = $1 AND content ILIKE ANY($2::text[])
+         ORDER BY (SELECT COUNT(*) FROM unnest($2::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC
+         LIMIT $3`
+      : `SELECT id, document_id, document_name, content, page
+         FROM knowledge_chunks
+         WHERE content ILIKE ANY($1::text[])
+         ORDER BY (SELECT COUNT(*) FROM unnest($1::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC
+         LIMIT $2`,
+    scope?.mode === 'cloud'
+      ? [scope.workspaceId, patterns, Math.max(limit * 4, 24)]
+      : [patterns, Math.max(limit * 4, 24)]);
+    return result.rows
+      .map((row) => ({
+        id: row.id,
+        documentId: row.document_id,
+        documentName: row.document_name,
+        content: row.content,
+        page: row.page ?? undefined,
+        embedding: [],
+        score: calculateKeywordScore(row.content, terms),
+        routes: ['keyword' as const],
+      }))
+      .filter((row) => row.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, limit);
   }
 }
 

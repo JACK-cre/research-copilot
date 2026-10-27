@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  getAiAccessMode,
   getEmbeddingDimensions,
+  getResearchLimit,
   getWorkspaceStorageLimitBytes,
   isCloudPlatformConfigured,
 } from '@/lib/platform-config';
@@ -28,5 +30,14 @@ describe('platform configuration', () => {
   it('rejects invalid embedding dimensions', () => {
     vi.stubEnv('EMBEDDING_DIMENSIONS', 'not-a-number');
     expect(() => getEmbeddingDimensions()).toThrow('正整数');
+  });
+
+  it('uses hybrid AI access and separate personal-key limits by default', () => {
+    vi.stubEnv('AI_ACCESS_MODE', 'hybrid');
+    expect(getAiAccessMode()).toBe('hybrid');
+    vi.stubEnv('DAILY_BYOK_RESEARCH_LIMIT', '75');
+    vi.stubEnv('DAILY_RESEARCH_LIMIT', '20');
+    expect(getResearchLimit('personal')).toBe(75);
+    expect(getResearchLimit('platform')).toBe(20);
   });
 });

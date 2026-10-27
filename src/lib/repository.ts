@@ -1,19 +1,30 @@
 import { randomUUID } from 'node:crypto';
 
 import { getDatabasePool } from '@/lib/db';
-import { getDailyResearchLimit, getWorkspaceStorageLimitBytes } from '@/lib/platform-config';
+import { getResearchLimit, getWorkspaceStorageLimitBytes } from '@/lib/platform-config';
 import type {
+  AiCredentialSource,
   ArtifactType,
   DataScope,
+  OutputTemplateSnapshot,
   ResearchArtifact,
   ResearchRunStatus,
   ResearchRunSummary,
+  RevisionTarget,
 } from '@/types/platform';
 import type { ResearchRequest, ResearchResult } from '@/types/research';
 
 export async function createResearchRun(
   scope: DataScope,
   request: ResearchRequest,
+  options: {
+    aiSource: AiCredentialSource;
+    template: OutputTemplateSnapshot;
+    parentRunId?: string;
+    version?: number;
+    revisionInstruction?: string;
+    revisionTarget?: RevisionTarget;
+  },
 ): Promise<string> {
   if (scope.mode === 'legacy') return randomUUID();
 
@@ -25,18 +36,35 @@ export async function createResearchRun(
     const usage = await client.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
        FROM research_runs
-       WHERE created_by = $1 AND created_at >= date_trunc('day', now())`,
-      [scope.userId],
+       WHERE created_by = $1 AND ai_source = $2 AND created_at >= date_trunc('day', now())`,
+      [scope.userId, options.aiSource],
     );
-    if (Number(usage.rows[0]?.count ?? 0) >= getDailyResearchLimit()) {
-      throw new Error('今天的研究任务额度已用完，请明天再试或提高 DAILY_RESEARCH_LIMIT。');
+    const limit = getResearchLimit(options.aiSource);
+    if (Number(usage.rows[0]?.count ?? 0) >= limit) {
+      const label = options.aiSource === 'platform' ? '平台模型' : options.aiSource === 'personal' ? '个人 Key' : '本地模式';
+      throw new Error(`今天的${label}任务额度已用完（${limit} 次）。`);
     }
 
     const id = randomUUID();
     await client.query(
-      `INSERT INTO research_runs (id, workspace_id, created_by, topic, requirements, status, request)
-       VALUES ($1, $2, $3, $4, $5, 'running', $6::jsonb)`,
-      [id, scope.workspaceId, scope.userId, request.topic, request.requirements, JSON.stringify(request)],
+      `INSERT INTO research_runs
+         (id, workspace_id, created_by, topic, requirements, status, request,
+          parent_run_id, version, revision_instruction, revision_target, ai_source, template_snapshot)
+       VALUES ($1, $2, $3, $4, $5, 'running', $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb)`,
+      [
+        id,
+        scope.workspaceId,
+        scope.userId,
+        request.topic,
+        request.requirements,
+        JSON.stringify(request),
+        options.parentRunId ?? null,
+        options.version ?? 1,
+        options.revisionInstruction ?? null,
+        options.revisionTarget ?? null,
+        options.aiSource,
+        JSON.stringify(options.template),
+      ],
     );
     await client.query('COMMIT');
     return id;
@@ -85,8 +113,15 @@ export async function listResearchRuns(scope: DataScope): Promise<ResearchRunSum
     error: string | null;
     created_at: Date;
     completed_at: Date | null;
+    parent_run_id: string | null;
+    version: number;
+    revision_instruction: string | null;
+    revision_target: RevisionTarget | null;
+    ai_source: AiCredentialSource;
+    template_snapshot: OutputTemplateSnapshot | null;
   }>(
-    `SELECT id, topic, status, result, error, created_at, completed_at
+    `SELECT id, topic, status, result, error, created_at, completed_at,
+            parent_run_id, version, revision_instruction, revision_target, ai_source, template_snapshot
      FROM research_runs
      WHERE workspace_id = $1
      ORDER BY created_at DESC
@@ -103,6 +138,12 @@ export async function listResearchRuns(scope: DataScope): Promise<ResearchRunSum
     createdAt: row.created_at.toISOString(),
     completedAt: row.completed_at?.toISOString(),
     error: row.error ?? undefined,
+    version: row.version,
+    parentRunId: row.parent_run_id ?? undefined,
+    revisionInstruction: row.revision_instruction ?? undefined,
+    revisionTarget: row.revision_target ?? undefined,
+    aiSource: row.ai_source,
+    templateName: row.template_snapshot?.name,
   }));
 }
 

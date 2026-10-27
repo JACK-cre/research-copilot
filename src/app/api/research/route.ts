@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { resolveAiRuntimeConfig } from '@/lib/ai-settings';
 import { apiErrorStatus, requireDataScope } from '@/lib/auth';
 import {
   completeResearchRun,
@@ -9,6 +10,7 @@ import {
   listResearchRuns,
 } from '@/lib/repository';
 import { runResearchAgent } from '@/lib/research-agent';
+import { resolveOutputTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -22,6 +24,7 @@ const requestSchema = z.object({
   paperCount: z.number().int().min(3).max(20).default(8),
   includeExternal: z.boolean().default(true),
   includeLibrary: z.boolean().default(true),
+  templateId: z.string().trim().min(1).max(120).default('default-academic-paper'),
 }).refine((value) => value.includeExternal || value.includeLibrary, {
   message: '至少选择一个检索来源。',
 });
@@ -32,8 +35,10 @@ export async function POST(request: Request) {
   try {
     const input = requestSchema.parse(await request.json());
     scope = await requireDataScope();
-    runId = await createResearchRun(scope, input);
-    const result = await runResearchAgent(input, scope, runId);
+    const ai = await resolveAiRuntimeConfig(scope);
+    const template = await resolveOutputTemplate(scope, input.templateId);
+    runId = await createResearchRun(scope, input, { aiSource: ai.source, template });
+    const result = await runResearchAgent(input, scope, runId, ai, template);
     await completeResearchRun(scope, result);
     return NextResponse.json(result);
   } catch (error) {

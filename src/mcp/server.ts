@@ -1,7 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { embedText } from '@/lib/embeddings';
+import { resolveAiRuntimeConfig } from '@/lib/ai-settings';
+import { embedTextWithConfig } from '@/lib/embeddings';
+import { fuseKnowledgeResults } from '@/lib/hybrid-search';
 import { searchOpenAlex } from '@/lib/openalex';
 import { isCloudPlatformConfigured } from '@/lib/platform-config';
 import { getVectorStore } from '@/lib/vector-store';
@@ -50,9 +52,23 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       if (isCloudPlatformConfigured() && !scope) {
         throw new Error('Cloud knowledge search requires an authenticated workspace.');
       }
-      const queryVector = await embedText(query);
-      const matches = await getVectorStore().search(queryVector, limit, scope);
-      return toolResult(matches);
+      const ai = await resolveAiRuntimeConfig(scope);
+      const store = getVectorStore();
+      const semanticPromise = embedTextWithConfig(query, ai)
+        .then((queryVector) => store.search(queryVector, limit * 3, scope, {
+          model: ai.embeddingIdentity,
+          dimensions: ai.embeddingDimensions,
+        }));
+      const [semanticResult, keywordResult] = await Promise.allSettled([
+        semanticPromise,
+        store.lexicalSearch(query, limit * 3, scope),
+      ]);
+      const semantic = semanticResult.status === 'fulfilled' ? semanticResult.value : [];
+      const keyword = keywordResult.status === 'fulfilled' ? keywordResult.value : [];
+      if (!semantic.length && !keyword.length && semanticResult.status === 'rejected') {
+        throw semanticResult.reason;
+      }
+      return toolResult(fuseKnowledgeResults(semantic, keyword, limit));
     },
   );
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { resolveAiRuntimeConfig } from '@/lib/ai-settings';
 import { apiErrorStatus, requireDataScope } from '@/lib/auth';
 import { removeStoredObjects, uploadSourceFile } from '@/lib/cloud-storage';
 import { parseUpload } from '@/lib/documents';
@@ -22,6 +23,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const scope = await requireDataScope();
+    const ai = await resolveAiRuntimeConfig(scope);
     const formData = await request.formData();
     const files = formData.getAll('files').filter((item): item is File => item instanceof File);
     if (!files.length) {
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
 
     const documents = [];
     for (const file of files) {
-      const parsed = await parseUpload(file);
+      const parsed = await parseUpload(file, ai);
       let storagePath: string | undefined;
       try {
         if (scope.mode === 'cloud') {

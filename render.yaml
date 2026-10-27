@@ -21,6 +21,10 @@ services:
         value: text-embedding-3-small
       - key: EMBEDDING_DIMENSIONS
         value: "384"
+      - key: AI_ACCESS_MODE
+        value: hybrid
+      - key: AI_KEY_ENCRYPTION_SECRET
+        generateValue: true
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -35,6 +39,10 @@ services:
         sync: false
       - key: DAILY_RESEARCH_LIMIT
         value: "20"
+      - key: DAILY_BYOK_RESEARCH_LIMIT
+        value: "100"
+      - key: DAILY_LOCAL_RESEARCH_LIMIT
+        value: "50"
       - key: WORKSPACE_STORAGE_LIMIT_MB
         value: "250"
 
