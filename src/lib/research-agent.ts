@@ -163,10 +163,13 @@ async function generateWithModel(
       temperature: 0.2,
     });
     const content = completion.choices[0]?.message.content;
-    if (!content) return null;
+    if (!content) throw new Error('Model returned an empty response.');
     return generatedOutputSchema.parse(JSON.parse(content));
   } catch (error) {
-    console.warn('Model generation failed; using local synthesis.', error);
+    console.warn('Model generation failed.', error);
+    if (ai.source === 'personal') {
+      throw new Error('个人对话模型调用失败，请检查接口地址、模型名、API Key 和账户余额。');
+    }
     return null;
   }
 }
@@ -355,7 +358,7 @@ async function reviseWithModel(
       temperature: 0.2,
     });
     const content = completion.choices[0]?.message.content;
-    if (!content) return null;
+    if (!content) throw new Error('Model returned an empty response.');
     const generated = generatedOutputSchema.parse(JSON.parse(content));
     const previousOutput = previousGeneratedOutput(previous);
     if (target === 'report') generated.slides = previousOutput.slides;
@@ -377,7 +380,10 @@ async function reviseWithModel(
     }
     return generated;
   } catch (error) {
-    console.warn('Model revision failed; using local revision.', error);
+    console.warn('Model revision failed.', error);
+    if (ai.source === 'personal') {
+      throw new Error('个人对话模型调用失败，请检查接口地址、模型名、API Key 和账户余额。');
+    }
     return null;
   }
 }

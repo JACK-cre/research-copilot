@@ -5,7 +5,7 @@ import { hashEmbedding } from "@/lib/text";
 import type { AiRuntimeConfig } from "@/types/platform";
 
 function createOpenAIClient(config: AiRuntimeConfig): OpenAI | null {
-  if (!config.apiKey) return null;
+  if (!config.apiKey || config.embeddingModel === 'local-hash-v1') return null;
   return new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,

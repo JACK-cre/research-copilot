@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createEmbeddingIdentity,
   getAiAccessMode,
   getEmbeddingDimensions,
   getResearchLimit,
@@ -37,5 +38,11 @@ describe('platform configuration', () => {
     vi.stubEnv('DAILY_RESEARCH_LIMIT', '20');
     expect(getResearchLimit('personal')).toBe(75);
     expect(getResearchLimit('platform')).toBe(20);
+  });
+
+  it('keeps local embeddings independent from the chat provider', () => {
+    expect(createEmbeddingIdentity('https://api.deepseek.com', 'local-hash-v1')).toBe('local-hash-v1');
+    expect(createEmbeddingIdentity('https://api.openai.com/v1/', 'text-embedding-3-small'))
+      .toBe('provider:https://api.openai.com/v1|text-embedding-3-small');
   });
 });

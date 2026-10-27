@@ -44,8 +44,16 @@ export async function DELETE(
     const { id } = await params;
     const document = await getVectorStore().deleteDocument(id, scope);
     if (!document) return NextResponse.json({ error: '资料不存在。' }, { status: 404 });
-    if (document.storagePath) await removeStoredObjects(scope, [document.storagePath]);
-    return NextResponse.json({ deleted: true });
+    let cleanupWarning: string | undefined;
+    if (document.storagePath) {
+      try {
+        await removeStoredObjects(scope, [document.storagePath]);
+      } catch (error) {
+        console.error('Source file could not be removed after document deletion.', error);
+        cleanupWarning = '资料索引已删除，但原始文件未能立即清理。';
+      }
+    }
+    return NextResponse.json({ deleted: true, warning: cleanupWarning });
   } catch (error) {
     const message = error instanceof Error ? error.message : '资料删除失败。';
     return NextResponse.json({ error: message }, { status: apiErrorStatus(error) });

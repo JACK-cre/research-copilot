@@ -159,6 +159,45 @@ export async function getResearchResult(
   return result.rows[0]?.result ?? null;
 }
 
+export async function deleteResearchRun(
+  scope: DataScope,
+  id: string,
+): Promise<{ deleted: boolean; artifactStoragePaths: string[] }> {
+  if (scope.mode === 'legacy') return { deleted: false, artifactStoragePaths: [] };
+
+  const client = await getDatabasePool().connect();
+  try {
+    await client.query('BEGIN');
+    const run = await client.query<{ id: string }>(
+      'SELECT id FROM research_runs WHERE id = $1 AND workspace_id = $2 FOR UPDATE',
+      [id, scope.workspaceId],
+    );
+    if (!run.rowCount) {
+      await client.query('ROLLBACK');
+      return { deleted: false, artifactStoragePaths: [] };
+    }
+
+    const artifacts = await client.query<{ storage_path: string }>(
+      'SELECT storage_path FROM artifacts WHERE run_id = $1 AND workspace_id = $2',
+      [id, scope.workspaceId],
+    );
+    await client.query(
+      'DELETE FROM research_runs WHERE id = $1 AND workspace_id = $2',
+      [id, scope.workspaceId],
+    );
+    await client.query('COMMIT');
+    return {
+      deleted: true,
+      artifactStoragePaths: artifacts.rows.map((artifact) => artifact.storage_path),
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getWorkspaceStorageUsage(scope: DataScope): Promise<number> {
   if (scope.mode === 'legacy') return 0;
   const result = await getDatabasePool().query<{ total: string }>(

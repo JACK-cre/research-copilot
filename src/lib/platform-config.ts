@@ -30,6 +30,7 @@ export function getAiAccessMode(): 'hybrid' | 'byok' | 'platform' {
 }
 
 export function createEmbeddingIdentity(baseURL: string, model: string): string {
+  if (model === 'local-hash-v1') return 'local-hash-v1';
   return 'provider:' + baseURL.replace(/\/+$/, '') + '|' + model;
 }
 

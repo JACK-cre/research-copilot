@@ -78,6 +78,15 @@ function citationText(ids: string[]): string {
   return ids.map((id) => '[' + id + ']').join(' ');
 }
 
+function isDeepSeekBaseUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'api.deepseek.com';
+  } catch {
+    return false;
+  }
+}
+
 interface ResearchWorkbenchProps {
   cloudEnabled?: boolean;
   userEmail?: string;
@@ -97,6 +106,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   const [refining, setRefining] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -151,6 +161,18 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     void loadHistory();
     void loadTemplates();
   }, [loadHistory, loadLibrary, loadTemplates]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(''), 4_500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(''), 9_000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   const yearCounts = useMemo(() => {
     if (!result) return [];
@@ -302,6 +324,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
 
   async function openRun(id: string) {
     setError('');
+    setNotice('');
     try {
       const response = await fetch('/api/research/' + id, { cache: 'no-store' });
       const payload = await response.json();
@@ -319,15 +342,46 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   async function deleteDocument(id: string) {
     if (!window.confirm('确认删除这份资料及其全部向量片段？')) return;
     setError('');
+    setNotice('');
     try {
       const response = await fetch('/api/library/' + id, { method: 'DELETE' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '资料删除失败');
-      await loadLibrary();
-      setNotice('资料已删除');
+      setDocuments((current) => current.filter((document) => document.id !== id));
+      void loadLibrary();
+      setNotice(payload.warning || '资料已删除');
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '资料删除失败');
     }
+  }
+
+  async function deleteRun(id: string) {
+    if (!window.confirm('确认删除这个研究版本？该版本的文稿、证据记录和已导出文件也会删除。')) return;
+    setDeletingRunId(id);
+    setError('');
+    setNotice('');
+    try {
+      const response = await fetch('/api/research/' + id, { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '研究记录删除失败');
+      setRuns((current) => current.filter((run) => run.id !== id));
+      if (result?.id === id) {
+        setResult(null);
+        setArtifacts([]);
+      }
+      setNotice(payload.warning || '研究记录已删除');
+      void loadHistory();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : '研究记录删除失败');
+    } finally {
+      setDeletingRunId(null);
+    }
+  }
+
+  function navigate(nextView: WorkspaceView) {
+    setView(nextView);
+    setError('');
+    setNotice('');
   }
 
   return (
@@ -342,16 +396,16 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
         </div>
 
         <nav className="primary-nav" aria-label="主导航">
-          <button className={view === 'research' ? 'nav-item active' : 'nav-item'} onClick={() => setView('research')}>
+          <button className={view === 'research' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('research')}>
             <Search size={17} />研究任务
           </button>
-          <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => setView('library')}>
+          <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('library')}>
             <Library size={17} />知识库<span className="nav-count">{documents.length}</span>
           </button>
-          {cloudEnabled ? <button className={view === 'history' ? 'nav-item active' : 'nav-item'} onClick={() => setView('history')}>
+          {cloudEnabled ? <button className={view === 'history' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('history')}>
             <History size={17} />研究历史<span className="nav-count">{runs.length}</span>
           </button> : null}
-          {cloudEnabled ? <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setView('settings')}>
+          {cloudEnabled ? <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('settings')}>
             <Settings size={17} />配置中心
           </button> : null}
         </nav>
@@ -384,8 +438,8 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           ) : null}
         </header>
 
-        {error ? <div className="message error"><X size={16} />{error}</div> : null}
-        {notice ? <div className="message notice"><Check size={16} />{notice}</div> : null}
+        {error ? <div className="message error" role="alert"><X size={16} /><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="关闭错误提示"><X size={14} /></button></div> : null}
+        {notice ? <div className="message notice" role="status"><Check size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭成功提示"><X size={14} /></button></div> : null}
 
         {view === 'research' ? (
           <div className="research-layout">
@@ -490,7 +544,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           </div>
         ) : view === 'library' ? (
           <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} onError={setError} cloudEnabled={cloudEnabled} />
-        ) : view === 'history' ? <HistoryView runs={runs} onOpen={openRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
+        ) : view === 'history' ? <HistoryView runs={runs} deletingRunId={deletingRunId} onOpen={openRun} onDelete={deleteRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
       </section>
     </main>
   );
@@ -548,6 +602,14 @@ function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onEr
   const [loadingEvidenceId, setLoadingEvidenceId] = useState<string | null>(null);
   const [evidenceByDocument, setEvidenceByDocument] = useState<Record<string, KnowledgeChunkPreview[]>>({});
 
+  useEffect(() => {
+    const documentIds = new Set(documents.map((document) => document.id));
+    if (expandedDocumentId && !documentIds.has(expandedDocumentId)) setExpandedDocumentId(null);
+    setEvidenceByDocument((current) => Object.fromEntries(
+      Object.entries(current).filter(([documentId]) => documentIds.has(documentId)),
+    ));
+  }, [documents, expandedDocumentId]);
+
   async function toggleEvidence(documentId: string) {
     if (expandedDocumentId === documentId) {
       setExpandedDocumentId(null);
@@ -586,7 +648,7 @@ function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onEr
   );
 }
 
-function HistoryView({ runs, onOpen }: { runs: ResearchRunSummary[]; onOpen: (id: string) => Promise<void> }) {
+function HistoryView({ runs, deletingRunId, onOpen, onDelete }: { runs: ResearchRunSummary[]; deletingRunId: string | null; onOpen: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
   return (
     <div className="history-layout">
       <div className="history-summary"><History size={21} /><div><strong>研究记录</strong><span>完整报告和证据会持久保存在你的私有工作空间</span></div></div>
@@ -594,7 +656,7 @@ function HistoryView({ runs, onOpen }: { runs: ResearchRunSummary[]; onOpen: (id
         <article className="history-row" key={run.id}>
           <div className={'run-status ' + run.status}>{run.status === 'completed' ? '已完成' : run.status === 'running' ? '执行中' : '失败'}</div>
           <div className="history-main"><h2><span className="version-label">V{run.version}</span>{run.title || run.topic}</h2><p>{new Date(run.createdAt).toLocaleString('zh-CN')} · {run.templateName ?? '通用模板'} · {run.aiSource === 'personal' ? '个人 Key' : run.aiSource === 'platform' ? '平台模型' : '本地模式'} · {run.paperCount} 篇论文 · {run.evidenceCount} 条证据</p>{run.revisionInstruction ? <small>{run.revisionInstruction}</small> : null}{run.error ? <span>{run.error}</span> : null}</div>
-          <button className="button secondary" disabled={run.status !== 'completed'} onClick={() => void onOpen(run.id)}>打开<ChevronRight size={15} /></button>
+          <div className="history-actions"><button className="button secondary" disabled={run.status !== 'completed' || deletingRunId === run.id} onClick={() => void onOpen(run.id)}>打开<ChevronRight size={15} /></button><button className="icon-button danger" type="button" disabled={deletingRunId === run.id} onClick={() => void onDelete(run.id)} title="删除研究记录" aria-label={'删除 ' + (run.title || run.topic)}>{deletingRunId === run.id ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}</button></div>
         </article>
       ))}</div> : <div className="library-empty"><History size={24} /><span>还没有研究记录</span></div>}
     </div>
@@ -677,6 +739,15 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     } finally {
       setSavingAi(false);
     }
+  }
+
+  function updateBaseURL(value: string) {
+    setBaseURL(value);
+    if (isDeepSeekBaseUrl(value)) setEmbeddingModel('local-hash-v1');
+  }
+
+  function selectEmbeddingMode(mode: 'local' | 'provider') {
+    setEmbeddingModel(mode === 'local' ? 'local-hash-v1' : 'text-embedding-3-small');
   }
 
   async function removeAi() {
@@ -787,11 +858,14 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   return <div className="settings-layout">
     <section className="settings-section">
       <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
-      <p className="settings-description">连接任意 OpenAI 兼容服务。研究报告、PPT 和模板识别使用对话模型；知识库上传与 RAG 检索使用向量模型。</p>
+      <p className="settings-description">连接任意 OpenAI 兼容服务。研究报告、PPT 和模板识别使用对话模型；知识库可使用当前服务的向量模型，也可在本机生成向量。DeepSeek 仅负责对话生成时，请选择本地向量。</p>
       <form className="settings-form" onSubmit={saveAi}>
         <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已加密保存，留空不会修改' : '填写服务商提供的 API Key'} /><small>仅加密保存在你的账户下，不会显示给其他用户。</small></label>
-        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => setBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。</small></label>
-        <div className="settings-grid"><label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板。</small></label><label><span>向量模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} placeholder="text-embedding-3-small" required /><small>用于资料入库和语义召回，输出维度需支持 384。</small></label></div>
+        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 接口，知识库将默认改用本地向量。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
+        <div className="settings-grid">
+          <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
+          <div className="embedding-setting"><span>知识库向量</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>本地向量</button><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>接口向量</button></div>{embeddingModel === 'local-hash-v1' ? <small>无需额外向量接口，固定生成 384 维向量，适合 DeepSeek。</small> : <><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} placeholder="text-embedding-3-small" required /><small>服务必须提供 OpenAI 兼容 Embeddings 接口，并支持输出 384 维。</small></>}</div>
+        </div>
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
     </section>
