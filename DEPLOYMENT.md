@@ -60,6 +60,8 @@ AI_ACCESS_MODE=hybrid
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
+EMBEDDING_API_KEY=
+EMBEDDING_BASE_URL=https://api.openai.com/v1
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=384
 

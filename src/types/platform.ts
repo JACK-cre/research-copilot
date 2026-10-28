@@ -13,6 +13,8 @@ export interface AiRuntimeConfig {
   apiKey?: string;
   baseURL: string;
   chatModel: string;
+  embeddingApiKey?: string;
+  embeddingBaseURL: string;
   embeddingModel: string;
   embeddingDimensions: number;
   embeddingIdentity: string;
@@ -24,6 +26,8 @@ export interface AiSettingsSummary {
   hasPersonalKey: boolean;
   baseURL: string;
   chatModel: string;
+  hasEmbeddingKey: boolean;
+  embeddingBaseURL: string;
   embeddingModel: string;
   embeddingDimensions: number;
   dailyLimit: number;

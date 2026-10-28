@@ -14,6 +14,8 @@ const settingsSchema = z.object({
   apiKey: z.string().trim().min(20).max(500).optional(),
   baseURL: z.string().trim().url().max(500),
   chatModel: z.string().trim().min(1).max(120),
+  embeddingApiKey: z.string().trim().min(20).max(500).optional(),
+  embeddingBaseURL: z.string().trim().url().max(500),
   embeddingModel: z.string().trim().min(1).max(120),
   embeddingDimensions: z.literal(384),
 });

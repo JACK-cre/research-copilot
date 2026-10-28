@@ -1,19 +1,8 @@
 import type { KnowledgeSearchResult } from '@/lib/vector-store';
+import { extractRelevanceTerms } from '@/lib/source-relevance';
 
 export function extractKeywordTerms(query: string): string[] {
-  const normalized = query.toLowerCase().replace(/[^\p{L}\p{N}-]+/gu, ' ').trim();
-  const terms = normalized.match(/[a-z0-9][a-z0-9-]{1,}|[\p{Script=Han}]{2,}/gu) ?? [];
-  const expanded: string[] = [];
-  for (const term of terms) {
-    if (/^[\p{Script=Han}]+$/u.test(term) && term.length > 4) {
-      for (let index = 0; index < term.length - 1; index += 2) {
-        expanded.push(term.slice(index, Math.min(index + 4, term.length)));
-      }
-    } else {
-      expanded.push(term);
-    }
-  }
-  return Array.from(new Set(expanded.filter((term) => term.length >= 2))).slice(0, 12);
+  return extractRelevanceTerms(query).slice(0, 16);
 }
 
 export function calculateKeywordScore(content: string, terms: string[]): number {
@@ -31,22 +20,36 @@ export function fuseKnowledgeResults(
   semantic: KnowledgeSearchResult[],
   keyword: KnowledgeSearchResult[],
   limit: number,
+  options: { semanticReliable?: boolean; semanticThreshold?: number; keywordThreshold?: number } = {},
 ): KnowledgeSearchResult[] {
-  const candidates = new Map<string, KnowledgeSearchResult & { fused: number; peak: number }>();
-  const add = (items: KnowledgeSearchResult[], weight: number, route: 'semantic' | 'keyword') => {
-    items.forEach((item, index) => {
-      const current = candidates.get(item.id) ?? { ...item, routes: [], fused: 0, peak: 0 };
-      current.fused += weight / (60 + index + 1);
-      current.peak = Math.max(current.peak, item.score);
-      current.routes = Array.from(new Set([...(current.routes ?? []), route]));
-      candidates.set(item.id, current);
-    });
-  };
-  add(semantic, 0.65, 'semantic');
-  add(keyword, 0.35, 'keyword');
-  const maximum = 1 / 61;
-  return Array.from(candidates.values())
-    .map(({ fused, peak, ...item }) => ({ ...item, score: Math.min(1, (fused / maximum) * 0.85 + peak * 0.15) }))
+  const semanticReliable = options.semanticReliable ?? true;
+  const semanticThreshold = options.semanticThreshold ?? 0.58;
+  const keywordThreshold = options.keywordThreshold ?? 0.16;
+  const semanticById = new Map(semantic.map((item) => [item.id, item]));
+  const keywordById = new Map(keyword.map((item) => [item.id, item]));
+  const ids = new Set([...semanticById.keys(), ...keywordById.keys()]);
+
+  return Array.from(ids).flatMap((id): KnowledgeSearchResult[] => {
+    const semanticItem = semanticById.get(id);
+    const keywordItem = keywordById.get(id);
+    const semanticScore = Math.max(0, Math.min(1, semanticItem?.score ?? 0));
+    const keywordScore = Math.max(0, Math.min(1, keywordItem?.score ?? 0));
+    const semanticAccepted = semanticReliable && semanticScore >= semanticThreshold;
+    const keywordAccepted = keywordScore >= keywordThreshold;
+    if (!semanticAccepted && !keywordAccepted) return [];
+
+    const base = semanticItem ?? keywordItem;
+    if (!base) return [];
+    const routes: Array<'semantic' | 'keyword'> = [];
+    if (semanticAccepted) routes.push('semantic');
+    if (keywordAccepted) routes.push('keyword');
+    const score = semanticAccepted && keywordAccepted
+      ? Math.min(1, semanticScore * 0.62 + keywordScore * 0.38 + 0.2)
+      : semanticAccepted
+        ? semanticScore
+        : Math.min(1, keywordScore * 0.9 + (semanticReliable ? semanticScore * 0.1 : 0));
+    return [{ ...base, score, routes }];
+  })
     .sort((left, right) => right.score - left.score)
     .slice(0, limit);
 }

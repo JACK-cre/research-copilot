@@ -441,6 +441,14 @@ button {
   margin-bottom: 14px;
 }
 
+.template-control > small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .control input,
 .control select {
   height: 36px;
@@ -983,6 +991,16 @@ button {
   font-weight: 700;
 }
 
+.paper-index.book {
+  color: #8b3e29;
+  background: var(--coral-soft);
+}
+
+.paper-index.web {
+  color: #5b4a18;
+  background: #f5edda;
+}
+
 .paper-main {
   min-width: 0;
 }
@@ -1008,6 +1026,14 @@ button {
   margin: 0;
   color: var(--muted);
   font-size: 9px;
+}
+
+.relevance-reason {
+  display: block;
+  margin: -3px 0 10px;
+  color: var(--teal);
+  font-size: 9px;
+  line-height: 1.45;
 }
 
 .topic-row {
@@ -1200,6 +1226,16 @@ button {
   background: var(--teal-soft);
 }
 
+.source-badge.book {
+  color: #8b3e29;
+  background: var(--coral-soft);
+}
+
+.source-badge.web {
+  color: #5b4a18;
+  background: #f5edda;
+}
+
 .source-badge.knowledge {
   color: #8b3e29;
   background: var(--coral-soft);
@@ -1301,6 +1337,15 @@ button {
   color: var(--muted);
   font-size: 9px;
   line-height: 1.5;
+}
+
+.embedding-provider-panel {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  background: #f7faf8;
+  border: 1px solid var(--line);
+  border-radius: 6px;
 }
 
 .settings-segmented {

@@ -1,4 +1,3 @@
-import { demoPapers } from "@/lib/demo-papers";
 import { normalizeWhitespace } from "@/lib/text";
 import type { Paper } from "@/types/research";
 
@@ -58,6 +57,7 @@ function mapWork(work: OpenAlexWork): Paper | null {
       .filter((name): name is string => Boolean(name))
       .slice(0, 4),
     source: "openalex",
+    sourceType: "paper",
   };
 }
 
@@ -96,12 +96,12 @@ export async function searchOpenAlex(
       .map(mapWork)
       .filter((paper): paper is Paper => Boolean(paper));
     if (papers.length) return { papers };
-    throw new Error("OpenAlex returned no usable papers");
+    return { papers: [], warning: "OpenAlex 没有返回可用结果。" };
   } catch (error) {
-    console.warn("OpenAlex search failed; using the demo corpus.", error);
+    console.warn("OpenAlex search failed.", error);
     return {
-      papers: demoPapers.slice(0, options.limit),
-      warning: "外部论文服务暂不可用，当前结果来自内置示例语料。",
+      papers: [],
+      warning: "OpenAlex 暂时不可用，本次没有使用示例数据替代真实来源。",
     };
   }
 }

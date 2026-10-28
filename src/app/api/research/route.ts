@@ -13,7 +13,7 @@ import { runResearchAgent } from '@/lib/research-agent';
 import { resolveOutputTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const requestSchema = z.object({
   topic: z.string().trim().min(2).max(240),
@@ -24,7 +24,7 @@ const requestSchema = z.object({
   paperCount: z.number().int().min(3).max(20).default(8),
   includeExternal: z.boolean().default(true),
   includeLibrary: z.boolean().default(true),
-  templateId: z.string().trim().min(1).max(120).default('default-academic-paper'),
+  templateId: z.string().trim().max(120).optional().default(''),
 }).refine((value) => value.includeExternal || value.includeLibrary, {
   message: '至少选择一个检索来源。',
 });

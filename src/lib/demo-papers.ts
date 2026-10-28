@@ -14,6 +14,7 @@ export const demoPapers: Paper[] = [
     pdfUrl: "https://arxiv.org/pdf/2005.11401",
     topics: ["Retrieval-augmented generation", "Natural language processing"],
     source: "demo",
+    sourceType: "paper",
   },
   {
     id: "https://openalex.org/W-demo-react",
@@ -28,6 +29,7 @@ export const demoPapers: Paper[] = [
     pdfUrl: "https://arxiv.org/pdf/2210.03629",
     topics: ["Language model agents", "Reasoning"],
     source: "demo",
+    sourceType: "paper",
   },
   {
     id: "https://openalex.org/W-demo-agent-survey",
@@ -41,6 +43,7 @@ export const demoPapers: Paper[] = [
     pdfUrl: "https://arxiv.org/pdf/2308.11432",
     topics: ["Autonomous agents", "Large language models"],
     source: "demo",
+    sourceType: "paper",
   },
   {
     id: "https://openalex.org/W-demo-crag",
@@ -54,5 +57,6 @@ export const demoPapers: Paper[] = [
     pdfUrl: "https://arxiv.org/pdf/2401.15884",
     topics: ["Retrieval quality", "Grounded generation"],
     source: "demo",
+    sourceType: "paper",
   },
 ];

@@ -37,17 +37,23 @@ export function createEmbeddingIdentity(baseURL: string, model: string): string 
 export function getPlatformAiRuntimeConfig(): AiRuntimeConfig {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   const baseURL = (process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1').replace(/\/+$/, '');
-  const embeddingModel = process.env.EMBEDDING_MODEL?.trim() || 'text-embedding-3-small';
+  const configuredEmbeddingBaseURL = (process.env.EMBEDDING_BASE_URL?.trim() || baseURL).replace(/\/+$/, '');
+  const embeddingApiKey = process.env.EMBEDDING_API_KEY?.trim()
+    || (configuredEmbeddingBaseURL === baseURL ? apiKey : undefined);
+  const configuredEmbeddingModel = process.env.EMBEDDING_MODEL?.trim() || 'text-embedding-3-small';
+  const embeddingModel = embeddingApiKey ? configuredEmbeddingModel : 'local-hash-v1';
   const embeddingDimensions = getEmbeddingDimensions();
   return {
     source: apiKey ? 'platform' : 'local',
     apiKey: apiKey || undefined,
     baseURL,
     chatModel: process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
-    embeddingModel: apiKey ? embeddingModel : 'local-hash-v1',
+    embeddingApiKey,
+    embeddingBaseURL: configuredEmbeddingBaseURL,
+    embeddingModel,
     embeddingDimensions,
-    embeddingIdentity: apiKey
-      ? createEmbeddingIdentity(baseURL, embeddingModel)
+    embeddingIdentity: embeddingApiKey
+      ? createEmbeddingIdentity(configuredEmbeddingBaseURL, embeddingModel)
       : 'local-hash-v1',
   };
 }

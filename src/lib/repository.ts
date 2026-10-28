@@ -19,7 +19,7 @@ export async function createResearchRun(
   request: ResearchRequest,
   options: {
     aiSource: AiCredentialSource;
-    template: OutputTemplateSnapshot;
+    template?: OutputTemplateSnapshot;
     parentRunId?: string;
     version?: number;
     revisionInstruction?: string;
@@ -63,7 +63,7 @@ export async function createResearchRun(
         options.revisionInstruction ?? null,
         options.revisionTarget ?? null,
         options.aiSource,
-        JSON.stringify(options.template),
+        options.template ? JSON.stringify(options.template) : null,
       ],
     );
     await client.query('COMMIT');

@@ -33,6 +33,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import type {
   KnowledgeChunkPreview,
   KnowledgeDocument,
+  Paper,
   ResearchRequest,
   ResearchResult,
 } from '@/types/research';
@@ -57,10 +58,10 @@ const initialRequest: ResearchRequest = {
   paperCount: 8,
   includeExternal: true,
   includeLibrary: true,
-  templateId: 'default-academic-paper',
+  templateId: '',
 };
 
-const stages = ['拆解主题', '检索论文', '召回知识', '组织证据', '生成交付物'];
+const stages = ['拆解主题', '检索外部来源', '召回知识', '组织证据', '生成交付物'];
 
 function formatBytes(size: number): string {
   if (size < 1024) return size + ' B';
@@ -76,6 +77,22 @@ function authorLine(authors: Array<{ name: string }>): string {
 
 function citationText(ids: string[]): string {
   return ids.map((id) => '[' + id + ']').join(' ');
+}
+
+function sourceTypeLabel(source: Paper['sourceType']): string {
+  return source === 'book' ? '图书' : source === 'web' ? '网页' : '论文';
+}
+
+function providerLabel(source: Paper['source']): string {
+  const labels: Record<Paper['source'], string> = {
+    openalex: 'OpenAlex',
+    crossref: 'Crossref',
+    'google-books': 'Google Books',
+    'internet-archive': 'Internet Archive',
+    wikipedia: 'Wikipedia',
+    demo: '示例',
+  };
+  return labels[source];
 }
 
 function isDeepSeekBaseUrl(value: string): boolean {
@@ -177,7 +194,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   const yearCounts = useMemo(() => {
     if (!result) return [];
     const counts = new Map<number, number>();
-    result.papers.forEach((paper) => counts.set(paper.year, (counts.get(paper.year) ?? 0) + 1));
+    result.papers.filter((paper) => paper.year > 0).forEach((paper) => counts.set(paper.year, (counts.get(paper.year) ?? 0) + 1));
     return Array.from(counts.entries()).sort(([left], [right]) => left - right);
   }, [result]);
 
@@ -457,16 +474,16 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                   <label className="control"><span>目标受众</span><select value={request.audience} onChange={(event) => setRequest({ ...request, audience: event.target.value as ResearchRequest['audience'] })}><option value="technical">技术团队</option><option value="academic">学术研究</option><option value="general">通用受众</option></select></label>
                 </div>
 
-                <label className="control template-control"><span>输出模板</span><select value={request.templateId ?? 'default-academic-paper'} onChange={(event) => setRequest({ ...request, templateId: event.target.value })}>{templates.map((template) => <option value={template.id} key={template.id}>{template.school ? template.school + ' · ' : ''}{template.name}</option>)}</select></label>
+                <label className="control template-control"><span>输出模板</span><select value={request.templateId ?? ''} onChange={(event) => setRequest({ ...request, templateId: event.target.value })}><option value="">自由格式（按要求自动规划）</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select><small>不选模板时，系统会根据主题、交付类型和“侧重点与要求”自行组织结构。</small></label>
 
                 <div className="two-columns">
                   <label className="control"><span>起始年份</span><input type="number" min="1950" max={new Date().getFullYear()} value={request.yearFrom} onChange={(event) => setRequest({ ...request, yearFrom: Number(event.target.value) })} /></label>
-                  <label className="control"><span>论文数量</span><input type="number" min="3" max="20" value={request.paperCount} onChange={(event) => setRequest({ ...request, paperCount: Number(event.target.value) })} /></label>
+                  <label className="control"><span>目标来源数</span><input type="number" min="3" max="20" value={request.paperCount} onChange={(event) => setRequest({ ...request, paperCount: Number(event.target.value) })} /></label>
                 </div>
 
                 <fieldset className="source-options">
                   <legend>检索来源</legend>
-                  <label><input type="checkbox" checked={request.includeExternal} onChange={(event) => setRequest({ ...request, includeExternal: event.target.checked })} /><span><BookOpen size={15} />OpenAlex 论文</span></label>
+                  <label><input type="checkbox" checked={request.includeExternal} onChange={(event) => setRequest({ ...request, includeExternal: event.target.checked })} /><span><BookOpen size={15} />论文、图书与网页</span></label>
                   <label><input type="checkbox" checked={request.includeLibrary} onChange={(event) => setRequest({ ...request, includeLibrary: event.target.checked })} /><span><Database size={15} />本地知识库</span></label>
                 </fieldset>
 
@@ -515,7 +532,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                   </form> : null}
 
                   <div className="tabs" role="tablist">
-                    {([['overview', '总览'], ['papers', '论文'], ['report', '文稿'], ['slides', 'PPT']] as const).map(([value, label]) => (
+                    {([['overview', '总览'], ['papers', '外部来源'], ['report', '文稿'], ['slides', 'PPT']] as const).map(([value, label]) => (
                       <button key={value} className={tab === value ? 'tab active' : 'tab'} onClick={() => setTab(value)}>{label}{value === 'papers' ? <span>{result.papers.length}</span> : null}</button>
                     ))}
                   </div>
@@ -534,7 +551,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
               <div className="section-heading"><Database size={16} /><span>证据池</span>{result ? <em>{result.evidence.length}</em> : null}</div>
               {result?.evidence.length ? result.evidence.slice(0, 10).map((item) => (
                 <article className="evidence-item" key={item.id}>
-                  <div><span className={item.kind === 'paper' ? 'source-badge paper' : 'source-badge knowledge'}>{item.id}</span><span className="score">{item.retrievalRoutes?.map((route) => route === 'semantic' ? '语义' : '关键词').join(' + ') || ''} {Math.round(item.score * 100)}%</span></div>
+                  <div><span className={'source-badge ' + item.kind}>{item.id}</span><span className="score">{item.retrievalRoutes?.map((route) => route === 'semantic' ? '语义' : route === 'keyword' ? '关键词' : '模型重排').join(' + ') || ''} {Math.round(item.score * 100)}%</span></div>
                   <h3>{item.title}</h3>
                   <p>{item.excerpt}</p>
                   {item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">查看来源<ArrowUpRight size={13} /></a> : null}
@@ -555,7 +572,7 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
   return (
     <div className="overview-grid">
       <div className="metrics-band">
-        <div><strong>{result.papers.length}</strong><span>外部论文</span></div>
+        <div><strong>{result.papers.length}</strong><span>有效外部来源</span></div>
         <div><strong>{result.evidence.filter((item) => item.kind === 'knowledge').length}</strong><span>本地证据</span></div>
         <div><strong>{result.sections.length}</strong><span>文稿章节</span></div>
         <div><strong>{result.slides.length}</strong><span>幻灯片</span></div>
@@ -565,10 +582,10 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
         <div className="artifact-list">{artifacts.map((artifact) => <a href={'/api/artifacts/' + artifact.id} target="_blank" rel="noreferrer" key={artifact.id}><span className="artifact-icon">{artifact.type === 'pptx' ? <Presentation size={16} /> : <FileText size={16} />}</span><span><strong>{artifact.fileName}</strong><small>{formatBytes(artifact.size)} · {new Date(artifact.createdAt).toLocaleString('zh-CN')}</small></span><Download size={15} /></a>)}</div>
       </section> : null}
       <section className="content-section">
-        <div className="section-title"><h3>发表年份分布</h3><span>{result.request.yearFrom} 至今</span></div>
-        {yearCounts.length ? <div className="year-chart" role="img" aria-label="论文发表年份分布">
+        <div className="section-title"><h3>来源年份分布</h3><span>{result.request.yearFrom} 至今</span></div>
+        {yearCounts.length ? <div className="year-chart" role="img" aria-label="外部来源年份分布">
           {yearCounts.map(([year, count]) => <div className="year-bar" key={year}><span className="bar-value">{count}</span><span className="bar-fill" style={{ height: 24 + (count / maxCount) * 88 }} /><span className="bar-year">{year}</span></div>)}
-        </div> : <div className="inline-empty">暂无论文年份数据</div>}
+        </div> : <div className="inline-empty">暂无来源年份数据</div>}
       </section>
       <section className="content-section">
         <div className="section-title"><h3>检索式</h3><span>{result.searchQueries.length} 组</span></div>
@@ -580,13 +597,17 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
 }
 
 function Papers({ result }: { result: ResearchResult }) {
-  return <div className="paper-list">{result.papers.map((paper, index) => (
-    <article className="paper-row" key={paper.id}>
-      <span className="paper-index">P{index + 1}</span>
-      <div className="paper-main"><h3>{paper.title}</h3><p className="paper-meta">{authorLine(paper.authors)} · {paper.year} · 被引 {paper.citedByCount.toLocaleString()}</p><p>{paper.abstract}</p><div className="topic-row">{paper.topics.map((topic) => <span key={topic}>{topic}</span>)}</div></div>
+  const counts = { paper: 0, book: 0, web: 0 };
+  return <div className="paper-list">{result.papers.map((paper) => {
+    const sourceType = paper.sourceType ?? 'paper';
+    counts[sourceType] += 1;
+    const sourceId = (sourceType === 'book' ? 'B' : sourceType === 'web' ? 'W' : 'P') + counts[sourceType];
+    return <article className="paper-row" key={paper.id}>
+      <span className={'paper-index ' + sourceType}>{sourceId}</span>
+      <div className="paper-main"><h3>{paper.title}</h3><p className="paper-meta">{sourceTypeLabel(sourceType)} · {providerLabel(paper.source)} · {authorLine(paper.authors)}{paper.year ? ` · ${paper.year}` : ''}{sourceType === 'paper' ? ` · 被引 ${paper.citedByCount.toLocaleString()}` : ''} · 相关性 {Math.round((paper.relevanceScore ?? 0) * 100)}%</p><p>{paper.abstract}</p>{paper.relevanceReason ? <small className="relevance-reason">{paper.relevanceReason}</small> : null}<div className="topic-row">{paper.topics.map((topic) => <span key={topic}>{topic}</span>)}</div></div>
       <a className="icon-link" href={paper.url} target="_blank" rel="noreferrer" aria-label={'打开 ' + paper.title}><ArrowUpRight size={17} /></a>
-    </article>
-  ))}</div>;
+    </article>;
+  })}</div>;
 }
 
 function Report({ result }: { result: ResearchResult }) {
@@ -655,7 +676,7 @@ function HistoryView({ runs, deletingRunId, onOpen, onDelete }: { runs: Research
       {runs.length ? <div className="history-list">{runs.map((run) => (
         <article className="history-row" key={run.id}>
           <div className={'run-status ' + run.status}>{run.status === 'completed' ? '已完成' : run.status === 'running' ? '执行中' : '失败'}</div>
-          <div className="history-main"><h2><span className="version-label">V{run.version}</span>{run.title || run.topic}</h2><p>{new Date(run.createdAt).toLocaleString('zh-CN')} · {run.templateName ?? '通用模板'} · {run.aiSource === 'personal' ? '个人 Key' : run.aiSource === 'platform' ? '平台模型' : '本地模式'} · {run.paperCount} 篇论文 · {run.evidenceCount} 条证据</p>{run.revisionInstruction ? <small>{run.revisionInstruction}</small> : null}{run.error ? <span>{run.error}</span> : null}</div>
+          <div className="history-main"><h2><span className="version-label">V{run.version}</span>{run.title || run.topic}</h2><p>{new Date(run.createdAt).toLocaleString('zh-CN')} · {run.templateName ?? '自由格式'} · {run.aiSource === 'personal' ? '个人 Key' : run.aiSource === 'platform' ? '平台模型' : '本地模式'} · {run.paperCount} 条外部来源 · {run.evidenceCount} 条证据</p>{run.revisionInstruction ? <small>{run.revisionInstruction}</small> : null}{run.error ? <span>{run.error}</span> : null}</div>
           <div className="history-actions"><button className="button secondary" disabled={run.status !== 'completed' || deletingRunId === run.id} onClick={() => void onOpen(run.id)}>打开<ChevronRight size={15} /></button><button className="icon-button danger" type="button" disabled={deletingRunId === run.id} onClick={() => void onDelete(run.id)} title="删除研究记录" aria-label={'删除 ' + (run.title || run.topic)}>{deletingRunId === run.id ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}</button></div>
         </article>
       ))}</div> : <div className="library-empty"><History size={24} /><span>还没有研究记录</span></div>}
@@ -673,7 +694,9 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState('https://api.openai.com/v1');
   const [chatModel, setChatModel] = useState('gpt-4.1-mini');
-  const [embeddingModel, setEmbeddingModel] = useState('text-embedding-3-small');
+  const [embeddingApiKey, setEmbeddingApiKey] = useState('');
+  const [embeddingBaseURL, setEmbeddingBaseURL] = useState('https://api.jina.ai/v1');
+  const [embeddingModel, setEmbeddingModel] = useState('local-hash-v1');
   const [savingAi, setSavingAi] = useState(false);
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -703,6 +726,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       setAi(payload.settings);
       setBaseURL(payload.settings.baseURL);
       setChatModel(payload.settings.chatModel);
+      setEmbeddingBaseURL(payload.settings.embeddingBaseURL);
       setEmbeddingModel(payload.settings.embeddingModel);
     } catch (loadError) {
       onError(loadError instanceof Error ? loadError.message : 'AI 配置读取失败');
@@ -725,6 +749,8 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
           apiKey: apiKey.trim() || undefined,
           baseURL,
           chatModel,
+          embeddingApiKey: embeddingApiKey.trim() || undefined,
+          embeddingBaseURL,
           embeddingModel,
           embeddingDimensions: 384,
         }),
@@ -733,7 +759,14 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       if (!response.ok) throw new Error(payload.error || 'AI 配置保存失败');
       setAi(payload.settings);
       setApiKey('');
-      onNotice('个人 AI 配置已加密保存');
+      setEmbeddingApiKey('');
+      const embeddingChanged = ai && (
+        ai.embeddingModel !== payload.settings.embeddingModel
+        || ai.embeddingBaseURL !== payload.settings.embeddingBaseURL
+      );
+      onNotice(embeddingChanged
+        ? 'AI 配置已保存；向量模型已变化，请重新上传旧资料以生成新的语义向量'
+        : '个人 AI 配置已加密保存');
     } catch (saveError) {
       onError(saveError instanceof Error ? saveError.message : 'AI 配置保存失败');
     } finally {
@@ -743,11 +776,15 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
 
   function updateBaseURL(value: string) {
     setBaseURL(value);
-    if (isDeepSeekBaseUrl(value)) setEmbeddingModel('local-hash-v1');
   }
 
   function selectEmbeddingMode(mode: 'local' | 'provider') {
-    setEmbeddingModel(mode === 'local' ? 'local-hash-v1' : 'text-embedding-3-small');
+    if (mode === 'local') {
+      setEmbeddingModel('local-hash-v1');
+      return;
+    }
+    setEmbeddingBaseURL('https://api.jina.ai/v1');
+    setEmbeddingModel('jina-embeddings-v3');
   }
 
   async function removeAi() {
@@ -760,6 +797,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     }
     setAi(payload.settings);
     setApiKey('');
+    setEmbeddingApiKey('');
     onNotice('个人 API Key 已删除');
   }
 
@@ -858,14 +896,15 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   return <div className="settings-layout">
     <section className="settings-section">
       <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
-      <p className="settings-description">连接任意 OpenAI 兼容服务。研究报告、PPT 和模板识别使用对话模型；知识库可使用当前服务的向量模型，也可在本机生成向量。DeepSeek 仅负责对话生成时，请选择本地向量。</p>
+      <p className="settings-description">对话模型负责检索重排、论文、PPT 和模板识别；Embedding 服务负责知识库中文语义检索。两者可以使用不同服务商，密钥分别加密保存。</p>
       <form className="settings-form" onSubmit={saveAi}>
         <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已加密保存，留空不会修改' : '填写服务商提供的 API Key'} /><small>仅加密保存在你的账户下，不会显示给其他用户。</small></label>
-        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 接口，知识库将默认改用本地向量。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
+        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 对话接口；下方可独立配置中文 Embedding。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
         <div className="settings-grid">
           <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
-          <div className="embedding-setting"><span>知识库向量</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>本地向量</button><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>接口向量</button></div>{embeddingModel === 'local-hash-v1' ? <small>无需额外向量接口，固定生成 384 维向量，适合 DeepSeek。</small> : <><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} placeholder="text-embedding-3-small" required /><small>服务必须提供 OpenAI 兼容 Embeddings 接口，并支持输出 384 维。</small></>}</div>
+          <div className="embedding-setting"><span>知识库检索模式</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>中文语义（推荐）</button><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>无向量服务</button></div>{embeddingModel === 'local-hash-v1' ? <small>仅使用严格关键词检索；哈希向量不会单独进入证据池，准确性优先但召回较少。</small> : <small>使用独立 Embedding 接口生成 384 维中文语义向量，并与关键词召回融合。</small>}</div>
         </div>
+        {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>推荐 Jina Embeddings v3；也支持能输出 384 维的 OpenAI 兼容向量服务。</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
     </section>

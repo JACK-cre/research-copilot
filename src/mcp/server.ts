@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { resolveAiRuntimeConfig } from '@/lib/ai-settings';
 import { embedTextWithConfig } from '@/lib/embeddings';
+import { searchExternalSources } from '@/lib/external-search';
 import { fuseKnowledgeResults } from '@/lib/hybrid-search';
 import { searchOpenAlex } from '@/lib/openalex';
 import { isHostedPlatformConfigured } from '@/lib/platform-config';
@@ -38,17 +39,35 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
   );
 
   server.registerTool(
+    'search_sources',
+    {
+      title: 'Search research sources',
+      description: 'Search academic papers, books, and web references using multiple providers.',
+      inputSchema: {
+        queries: z.array(z.string().min(2)).min(1).max(4),
+        intent: z.enum(['academic', 'book_review', 'general']),
+        yearFrom: z.number().int().min(1900).max(2100),
+        limit: z.number().int().min(10).max(60).default(50),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ queries, intent, yearFrom, limit }) =>
+      toolResult(await searchExternalSources({ queries, intent, yearFrom, limit })),
+  );
+
+  server.registerTool(
     'search_knowledge',
     {
       title: 'Search local knowledge base',
       description: 'Run vector similarity search over uploaded PDF and text documents.',
       inputSchema: {
         query: z.string().min(2),
+        keywordQuery: z.string().min(2).optional(),
         limit: z.number().int().min(1).max(20).default(8),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ query, limit }) => {
+    async ({ query, keywordQuery, limit }) => {
       if (isHostedPlatformConfigured() && !scope) {
         throw new Error('Cloud knowledge search requires an authenticated workspace.');
       }
@@ -61,14 +80,18 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
         }));
       const [semanticResult, keywordResult] = await Promise.allSettled([
         semanticPromise,
-        store.lexicalSearch(query, limit * 3, scope),
+        store.lexicalSearch(keywordQuery ?? query, limit * 3, scope),
       ]);
       const semantic = semanticResult.status === 'fulfilled' ? semanticResult.value : [];
       const keyword = keywordResult.status === 'fulfilled' ? keywordResult.value : [];
       if (!semantic.length && !keyword.length && semanticResult.status === 'rejected') {
         throw semanticResult.reason;
       }
-      return toolResult(fuseKnowledgeResults(semantic, keyword, limit));
+      return toolResult(fuseKnowledgeResults(semantic, keyword, limit, {
+        semanticReliable: ai.embeddingModel !== 'local-hash-v1',
+        semanticThreshold: 0.58,
+        keywordThreshold: 0.16,
+      }));
     },
   );
 

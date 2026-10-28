@@ -1,10 +1,11 @@
 # Research Copilot
 
-一个 TypeScript 研究工作台：输入主题与要求，通过 MCP 检索公开论文和个人知识库，生成带证据引用的研究稿、论文清单以及可下载的 PPTX。
+一个 TypeScript 研究工作台：输入主题与要求，通过 MCP 检索论文、图书、网页和个人知识库，生成带证据引用的研究稿、来源清单以及可下载的 PPTX。
 
 ## 当前能力
 
-- OpenAlex 论文检索与筛选
+- OpenAlex、Crossref、Google Books、Internet Archive 与 Wikipedia 多源检索
+- 关键词预筛与对话模型重排，使用真实相关性分数并丢弃无关结果
 - PDF、Markdown、TXT 解析、切分与向量化
 - 在知识库中展开查看文档的关键索引证据段落
 - PostgreSQL + pgvector 语义召回、关键词召回和融合排序
@@ -15,6 +16,7 @@
 - 内置学术论文、毕业论文、技术报告和答辩模板
 - 上传 DOCX/PDF 或直接描述要求，自动提炼可编辑的输出模板
 - 自定义模板跨会话保存，支持点击进入可视化编辑
+- 支持不选择模板，直接按照任务要求自动规划输出结构
 - 用户可加密保存自己的 OpenAI 兼容 API Key
 - 导出 Markdown 和真正的 `.pptx` 文件
 - 可选 SMTP 密码重置、开放注册、邀请码注册或关闭注册
@@ -120,6 +122,8 @@ S3_FORCE_PATH_STYLE=false
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
+EMBEDDING_API_KEY=
+EMBEDDING_BASE_URL=https://api.openai.com/v1
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=384
 AI_ACCESS_MODE=hybrid
@@ -132,13 +136,15 @@ AI_KEY_ENCRYPTION_SECRET=至少32位随机字符串
 
 个人 Key 使用 AES-256-GCM 加密，`AI_KEY_ENCRYPTION_SECRET` 投产后不能随意更换。更换 Embedding 模型后需要重新上传和向量化旧资料。
 
+对话模型与 Embedding 可以使用不同服务商。例如对话使用 DeepSeek，中文向量使用支持 OpenAI Embeddings 协议且可输出 384 维的 `jina-embeddings-v3`。如果不配置 Embedding 服务，知识库会退化为严格关键词检索，不再把哈希碰撞当成语义证据。
+
 ## MCP Server
 
 ```bash
 npm run mcp
 ```
 
-提供 `search_papers`、`search_knowledge` 和 `list_library` 三个工具。Web 研究流程通过进程内 MCP transport 使用同一套工具。
+提供 `search_sources`、`search_papers`、`search_knowledge` 和 `list_library` 等工具。Web 研究流程通过进程内 MCP transport 使用同一套工具。
 
 ## 验证
 

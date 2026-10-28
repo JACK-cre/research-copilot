@@ -85,13 +85,14 @@ export async function listOutputTemplates(scope: DataScope): Promise<OutputTempl
 export async function resolveOutputTemplate(
   scope: DataScope,
   id?: string,
-): Promise<OutputTemplateSnapshot> {
-  const defaultTemplate = DEFAULT_OUTPUT_TEMPLATES.find((template) => template.id === id)
-    ?? DEFAULT_OUTPUT_TEMPLATES[0];
-  if (!id || defaultTemplate.id === id || scope.mode === 'legacy') {
+): Promise<OutputTemplateSnapshot | undefined> {
+  if (!id) return undefined;
+  const defaultTemplate = DEFAULT_OUTPUT_TEMPLATES.find((template) => template.id === id);
+  if (defaultTemplate) {
     const { createdAt: _createdAt, ...snapshot } = defaultTemplate;
     return snapshot;
   }
+  if (scope.mode === 'legacy') throw new Error('所选输出模板不存在。');
   const result = await getDatabasePool().query<TemplateRow>(
     `SELECT id, name, kind, description, school, citation_style, instructions, created_at
      FROM output_templates WHERE id = $1 AND workspace_id = $2`,

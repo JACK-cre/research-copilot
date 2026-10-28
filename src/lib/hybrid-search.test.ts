@@ -41,4 +41,24 @@ describe('hybrid knowledge retrieval', () => {
     expect(fused[0].id).toBe('both');
     expect(fused[0].routes).toEqual(['semantic', 'keyword']);
   });
+
+  it('rejects semantic-only results when the configured embedding is not reliable', () => {
+    const fused = fuseKnowledgeResults(
+      [result('hash-collision', 0.95), result('keyword-match', 0.6)],
+      [result('keyword-match', 0.8)],
+      3,
+      { semanticReliable: false },
+    );
+    expect(fused.map((item) => item.id)).toEqual(['keyword-match']);
+    expect(fused[0].routes).toEqual(['keyword']);
+  });
+
+  it('does not label a below-threshold semantic candidate as semantic evidence', () => {
+    const fused = fuseKnowledgeResults(
+      [result('keyword-match', 0.4)],
+      [result('keyword-match', 0.8)],
+      1,
+    );
+    expect(fused[0].routes).toEqual(['keyword']);
+  });
 });

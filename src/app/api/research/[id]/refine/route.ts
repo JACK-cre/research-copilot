@@ -18,7 +18,7 @@ export const maxDuration = 60;
 const refineSchema = z.object({
   instruction: z.string().trim().min(2).max(3000),
   target: z.enum(['all', 'report', 'slides']).default('all'),
-  templateId: z.string().trim().min(1).max(120).optional(),
+  templateId: z.string().trim().max(120).optional(),
 });
 
 export async function POST(
@@ -42,7 +42,7 @@ export async function POST(
     const nextRequest = {
       ...previous.request,
       requirements: [previous.request.requirements, input.instruction].filter(Boolean).join('\n'),
-      templateId: template.id,
+      templateId: template?.id,
     };
     runId = await createResearchRun(scope, nextRequest, {
       aiSource: ai.source,

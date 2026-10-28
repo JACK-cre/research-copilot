@@ -11,7 +11,8 @@ function formatReference(item: Evidence, paper: Paper | undefined, style: string
   const normalized = style.toUpperCase();
   if (normalized.includes('APA')) return `${authors} (${paper.year}). ${paper.title}. ${url}`;
   if (normalized.includes('IEEE')) return `${authors}, “${paper.title},” ${paper.year}. [Online]. Available: ${url}`;
-  return `${authors}. ${paper.title}[J/OL]. ${paper.year}. ${url}`;
+  const marker = paper.sourceType === 'book' ? 'M/OL' : paper.sourceType === 'web' ? 'EB/OL' : 'J/OL';
+  return `${authors}. ${paper.title}[${marker}]. ${paper.year || '日期不详'}. ${url}`;
 }
 
 export function buildResearchMarkdown(result: ResearchResult): string {
@@ -34,7 +35,7 @@ export function buildResearchMarkdown(result: ResearchResult): string {
     '## 参考资料',
     '',
     ...result.evidence.map((item) => {
-      const paper = item.kind === 'paper'
+      const paper = item.kind !== 'knowledge'
         ? result.papers.find((candidate) => candidate.title === item.title)
         : undefined;
       return '- [' + item.id + '] ' + formatReference(item, paper, result.template?.citationStyle ?? 'GB/T 7714-2015');

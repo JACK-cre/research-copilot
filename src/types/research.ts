@@ -5,6 +5,9 @@ import type {
 } from "@/types/platform";
 
 export type DeliverableType = "survey" | "proposal" | "briefing";
+export type ResearchIntent = "academic" | "book_review" | "general";
+export type ExternalSourceType = "paper" | "book" | "web";
+export type ExternalSourceProvider = "openalex" | "crossref" | "google-books" | "internet-archive" | "wikipedia" | "demo";
 
 export interface ResearchRequest {
   topic: string;
@@ -33,7 +36,10 @@ export interface Paper {
   url: string;
   pdfUrl?: string;
   topics: string[];
-  source: "openalex" | "demo";
+  source: ExternalSourceProvider;
+  sourceType: ExternalSourceType;
+  relevanceScore?: number;
+  relevanceReason?: string;
 }
 
 export interface KnowledgeDocument {
@@ -63,14 +69,15 @@ export type KnowledgeChunkPreview = Omit<KnowledgeChunk, "embedding">;
 
 export interface Evidence {
   id: string;
-  kind: "paper" | "knowledge";
+  kind: ExternalSourceType | "knowledge";
   title: string;
   excerpt: string;
   sourceUrl?: string;
   year?: number;
   page?: number;
   score: number;
-  retrievalRoutes?: Array<"semantic" | "keyword">;
+  provider?: ExternalSourceProvider;
+  retrievalRoutes?: Array<"semantic" | "keyword" | "model">;
 }
 
 export interface ReportSection {
@@ -117,6 +124,7 @@ export interface ResearchResult {
   slides: SlideSpec[];
   mode: "model" | "local";
   warnings: string[];
+  intent?: ResearchIntent;
   aiSource?: AiCredentialSource;
   template?: OutputTemplateSnapshot;
   version?: number;
