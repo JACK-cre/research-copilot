@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildLocalRevision } from './local-revision';
+import { normalizeGeneratedResearchOutput } from './generated-output';
 import type { ResearchResult } from '@/types/research';
 
 const previous = {
@@ -43,5 +44,21 @@ describe('buildLocalRevision', () => {
     expect(revised.thesis).toContain(instruction);
     expect(revised.sections.map((section) => section.content).join('\n')).toContain(instruction);
     expect(revised.sections.some((section) => section.citations.includes('K1'))).toBe(true);
+  });
+});
+
+describe('normalizeGeneratedResearchOutput', () => {
+  it('coerces missing speaker notes and unknown slide types', () => {
+    const output = normalizeGeneratedResearchOutput({
+      title: '长征读后感',
+      thesis: '应紧扣原著与可靠史料。',
+      sections: [{ title: '背景', content: '依据证据说明长征背景。', citations: ['K1'] }],
+      slides: [{ type: 'cover', title: '开场', keyPoints: '主题', citations: ['K1'] }],
+    });
+    expect(output.slides[0]).toMatchObject({
+      type: 'title',
+      speakerNotes: '',
+      keyPoints: ['主题'],
+    });
   });
 });

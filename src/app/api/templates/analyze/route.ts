@@ -5,7 +5,7 @@ import { apiErrorStatus, requireDataScope } from '@/lib/auth';
 import { analyzeTemplateReference } from '@/lib/template-analyzer';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 export async function POST(request: Request) {
   try {

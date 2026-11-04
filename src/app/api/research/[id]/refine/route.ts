@@ -13,7 +13,7 @@ import { refineResearchAgent } from '@/lib/research-agent';
 import { resolveOutputTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const refineSchema = z.object({
   instruction: z.string().trim().min(2).max(3000),

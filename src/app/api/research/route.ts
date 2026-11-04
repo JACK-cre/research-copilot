@@ -13,7 +13,7 @@ import { runResearchAgent } from '@/lib/research-agent';
 import { resolveOutputTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const requestSchema = z.object({
   topic: z.string().trim().min(2).max(240),
