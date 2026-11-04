@@ -409,7 +409,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           <div className="brand-mark"><FlaskConical size={19} /></div>
           <div>
             <strong>Research Copilot</strong>
-            <span>研究工作台</span>
+            <span>论文 · 知识库 · PPT</span>
           </div>
         </div>
 
@@ -430,7 +430,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
 
         <div className="sidebar-status">
           <span className="status-dot" />
-          <div><strong>{cloudEnabled ? 'Private cloud' : 'Local ready'}</strong><span>{cloudEnabled ? '数据按工作空间隔离' : '兼容模式 · MCP 可用'}</span></div>
+          <div><strong>{cloudEnabled ? '私有云已连接' : '本地模式'}</strong><span>{cloudEnabled ? '资料按账户隔离保存' : '兼容模式 · MCP 可用'}</span></div>
         </div>
         {userEmail ? <div className="account-block"><div><Cloud size={15} /><span title={userEmail}>{userEmail}</span></div><button className="icon-button" onClick={() => void onSignOut?.()} title="退出登录" aria-label="退出登录"><LogOut size={16} /></button></div> : null}
       </aside>
@@ -438,7 +438,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       <section className="workspace">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{view === 'research' ? 'RESEARCH / NEW RUN' : view === 'library' ? 'KNOWLEDGE / LIBRARY' : view === 'history' ? 'RESEARCH / HISTORY' : 'WORKSPACE / SETTINGS'}</span>
+            <span className="eyebrow">{view === 'research' ? '从主题到论文和 PPT' : view === 'library' ? '本地资料与证据' : view === 'history' ? '可回看的研究版本' : '模型、检索与模板'}</span>
             <h1>{view === 'research' ? '研究任务' : view === 'library' ? '知识库' : view === 'history' ? '研究历史' : '配置中心'}</h1>
           </div>
           {view === 'research' && result ? (
@@ -465,10 +465,10 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
               <form onSubmit={runResearch}>
                 <div className="section-heading"><PanelLeft size={16} /><span>研究简报</span></div>
                 <label className="field-label" htmlFor="topic">研究主题</label>
-                <textarea id="topic" className="textarea topic-input" value={request.topic} onChange={(event) => setRequest({ ...request, topic: event.target.value })} required />
+                <textarea id="topic" className="textarea topic-input" value={request.topic} onChange={(event) => setRequest({ ...request, topic: event.target.value })} placeholder="例如：长征精神的当代价值与青年实践" required />
 
                 <label className="field-label" htmlFor="requirements">侧重点与要求</label>
-                <textarea id="requirements" className="textarea" value={request.requirements} onChange={(event) => setRequest({ ...request, requirements: event.target.value })} />
+                <textarea id="requirements" className="textarea" value={request.requirements} onChange={(event) => setRequest({ ...request, requirements: event.target.value })} placeholder="例如：写成课堂读书报告，约 5000 字；结合史料和个人体会；也可以直接说明论文结构或 PPT 页数。" />
 
                 <div className="two-columns">
                   <label className="control"><span>交付类型</span><select value={request.deliverable} onChange={(event) => setRequest({ ...request, deliverable: event.target.value as ResearchRequest['deliverable'] })}><option value="survey">研究综述</option><option value="proposal">技术方案</option><option value="briefing">汇报简报</option></select></label>
@@ -513,13 +513,13 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                     <span className="connector second" />
                     <span className="node node-three"><Presentation size={18} /></span>
                   </div>
-                  <h2>{running ? stages[stage] : '准备新的研究任务'}</h2>
-                  <p>{running ? '正在组织论文与知识库证据' : '填写左侧研究简报并开始'}</p>
+                  <h2>{running ? stages[stage] : '把主题变成可交付成果'}</h2>
+                  <p>{running ? '正在组织论文、图书、网页和知识库证据' : '在左侧写清主题、侧重点和格式要求。开始后会检索资料，并生成论文与 PPT。'}</p>
                 </div>
               ) : (
                 <>
                   <div className="result-header">
-                    <div><span className="result-kicker">{result.mode === 'model' ? 'MODEL SYNTHESIS' : 'LOCAL SYNTHESIS'}</span><h2>{result.title}</h2><p>{result.thesis}</p></div>
+                    <div><span className="result-kicker">{result.mode === 'model' ? '模型综合' : '本地综合'}</span><h2>{result.title}</h2><p>{result.thesis}</p></div>
                     <span className="result-id">V{result.version ?? 1} · RUN {result.id.slice(0, 6).toUpperCase()}</span>
                   </div>
 
@@ -673,7 +673,7 @@ function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onEr
 function HistoryView({ runs, deletingRunId, onOpen, onDelete }: { runs: ResearchRunSummary[]; deletingRunId: string | null; onOpen: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
   return (
     <div className="history-layout">
-      <div className="history-summary"><History size={21} /><div><strong>研究记录</strong><span>完整报告和证据会持久保存在你的私有工作空间</span></div></div>
+      <div className="history-summary"><History size={21} /><div><strong>研究记录</strong><span>报告、证据和版本都会保存在当前账户下，随时回看或继续改</span></div></div>
       {runs.length ? <div className="history-list">{runs.map((run) => (
         <article className="history-row" key={run.id}>
           <div className={'run-status ' + run.status}>{run.status === 'completed' ? '已完成' : run.status === 'running' ? '执行中' : '失败'}</div>

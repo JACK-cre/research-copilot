@@ -131,8 +131,8 @@ function AuthScreen({
   return (
     <main className="auth-shell">
       <section className="auth-panel">
-        <div className="auth-brand"><span><FlaskConical size={21} /></span><div><strong>Research Copilot</strong><small>私有研究工作台</small></div></div>
-        <div className="auth-heading"><LockKeyhole size={20} /><h1>{mode === 'signin' ? '登录工作空间' : mode === 'signup' ? '创建研究账户' : '找回账户密码'}</h1><p>{mode === 'forgot' ? '输入注册邮箱，我们会发送一个 30 分钟内有效的重置链接。' : '论文、知识库和研究成品仅对你的工作空间成员可见。'}</p></div>
+        <div className="auth-brand"><span><FlaskConical size={21} /></span><div><strong>Research Copilot</strong><small>论文 · 知识库 · PPT</small></div></div>
+        <div className="auth-heading"><LockKeyhole size={20} /><h1>{mode === 'signin' ? '进入研究工作台' : mode === 'signup' ? '创建研究账户' : '找回账户密码'}</h1><p>{mode === 'forgot' ? '输入注册邮箱，我们会发送一个 30 分钟内有效的重置链接。' : '检索论文与资料，生成可修改的论文和 PPT。内容只对当前账户可见。'}</p></div>
         <form onSubmit={submit}>
           {mode === 'signup' ? <label><span>显示名称</span><input autoComplete="name" maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="你的名称" /></label> : null}
           <label><span>邮箱</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
