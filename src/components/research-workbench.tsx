@@ -91,6 +91,11 @@ function providerLabel(source: Paper['source']): string {
     'google-books': 'Google Books',
     'internet-archive': 'Internet Archive',
     wikipedia: 'Wikipedia',
+    'baidu-baike': '百度百科',
+    wikidata: 'Wikidata',
+    'web-search': '网页搜索',
+    'semantic-scholar': 'Semantic Scholar',
+    'europe-pmc': 'Europe PMC',
     demo: '示例',
   };
   return labels[source];
@@ -478,7 +483,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                 <label className="control template-control"><span>输出模板</span><select value={request.templateId ?? ''} onChange={(event) => setRequest({ ...request, templateId: event.target.value })}><option value="">自由格式（按要求自动规划）</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select><small>不选模板时，系统会根据主题、交付类型和“侧重点与要求”自行组织结构。</small></label>
 
                 <div className="two-columns">
-                  <label className="control"><span>起始年份</span><input type="number" min="1950" max={new Date().getFullYear()} value={request.yearFrom} onChange={(event) => setRequest({ ...request, yearFrom: Number(event.target.value) })} /></label>
+                  <label className="control"><span>起始年份</span><input type="number" min="1900" max={new Date().getFullYear()} value={request.yearFrom} onChange={(event) => setRequest({ ...request, yearFrom: Number(event.target.value) })} /><small>读后感等历史主题会自动放宽到 1900 年，避免漏掉史料。</small></label>
                   <label className="control"><span>目标来源数</span><input type="number" min="3" max="20" value={request.paperCount} onChange={(event) => setRequest({ ...request, paperCount: Number(event.target.value) })} /></label>
                 </div>
 

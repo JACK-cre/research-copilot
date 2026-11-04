@@ -4,7 +4,8 @@
 
 ## 当前能力
 
-- OpenAlex、Crossref、Google Books、Internet Archive 与 Wikipedia 多源检索
+- OpenAlex、Crossref、Semantic Scholar、Europe PMC 公开学术索引，外加百度百科、Wikidata、Wikipedia、网页搜索与可选 Google Books
+- 知网/万方/维普没有开放检索接口，因此不抓取付费论文库；学术任务会给出知网检索入口，DOI 可继续到知网打开
 - 关键词预筛与对话模型重排，使用真实相关性分数并丢弃无关结果
 - PDF、Markdown、TXT 解析、切分与向量化
 - 在知识库中展开查看文档的关键索引证据段落

@@ -1,3 +1,4 @@
+import { describeHttpFailure, fetchJson } from '@/lib/http';
 import { normalizeWhitespace } from '@/lib/text';
 import type { Paper } from '@/types/research';
 
@@ -15,25 +16,27 @@ interface GoogleBookVolume {
   };
 }
 
+export function shouldSearchGoogleBooks(apiKey = process.env.GOOGLE_BOOKS_API_KEY): boolean {
+  return Boolean(apiKey?.trim());
+}
+
 export async function searchGoogleBooks(
   query: string,
   limit: number,
 ): Promise<{ papers: Paper[]; warning?: string }> {
+  const apiKey = process.env.GOOGLE_BOOKS_API_KEY?.trim();
+  if (!shouldSearchGoogleBooks(apiKey)) return { papers: [] };
+
   const url = new URL('https://www.googleapis.com/books/v1/volumes');
   url.searchParams.set('q', query);
   url.searchParams.set('maxResults', String(Math.min(limit, 20)));
   url.searchParams.set('printType', 'books');
   url.searchParams.set('orderBy', 'relevance');
   url.searchParams.set('langRestrict', 'zh');
-  if (process.env.GOOGLE_BOOKS_API_KEY) url.searchParams.set('key', process.env.GOOGLE_BOOKS_API_KEY);
+  url.searchParams.set('key', apiKey as string);
 
   try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(12_000),
-      next: { revalidate: 3600 },
-    });
-    if (!response.ok) throw new Error(`Google Books returned ${response.status}`);
-    const payload = await response.json() as { items?: GoogleBookVolume[] };
+    const payload = await fetchJson<{ items?: GoogleBookVolume[] }>(url);
     const papers = (payload.items ?? []).flatMap((volume): Paper[] => {
       const info = volume.volumeInfo;
       if (!info?.title) return [];
@@ -55,6 +58,6 @@ export async function searchGoogleBooks(
     return { papers };
   } catch (error) {
     console.warn('Google Books search failed.', error);
-    return { papers: [], warning: 'Google Books 暂时不可用。' };
+    return { papers: [], warning: describeHttpFailure('Google Books', error) };
   }
 }

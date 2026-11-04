@@ -1,3 +1,4 @@
+import { describeHttpFailure, fetchJson } from '@/lib/http';
 import { normalizeWhitespace } from '@/lib/text';
 import type { Paper } from '@/types/research';
 
@@ -28,12 +29,7 @@ export async function searchInternetArchive(
   url.searchParams.set('output', 'json');
 
   try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(12_000),
-      next: { revalidate: 3600 },
-    });
-    if (!response.ok) throw new Error(`Internet Archive returned ${response.status}`);
-    const payload = await response.json() as { response?: { docs?: ArchiveDocument[] } };
+    const payload = await fetchJson<{ response?: { docs?: ArchiveDocument[] } }>(url, { timeoutMs: 8_000 });
     const papers = (payload.response?.docs ?? []).flatMap((document): Paper[] => {
       if (!document.identifier || !document.title) return [];
       const description = list(document.description).join(' ');
@@ -53,6 +49,6 @@ export async function searchInternetArchive(
     return { papers };
   } catch (error) {
     console.warn('Internet Archive search failed.', error);
-    return { papers: [], warning: 'Internet Archive 暂时不可用。' };
+    return { papers: [], warning: describeHttpFailure('Internet Archive', error) };
   }
 }

@@ -20,7 +20,7 @@ const requestSchema = z.object({
   requirements: z.string().trim().max(1200).default(''),
   deliverable: z.enum(['survey', 'proposal', 'briefing']).default('survey'),
   audience: z.enum(['general', 'technical', 'academic']).default('technical'),
-  yearFrom: z.number().int().min(1950).max(new Date().getFullYear()).default(2020),
+  yearFrom: z.number().int().min(1900).max(new Date().getFullYear()).default(2020),
   paperCount: z.number().int().min(3).max(20).default(8),
   includeExternal: z.boolean().default(true),
   includeLibrary: z.boolean().default(true),

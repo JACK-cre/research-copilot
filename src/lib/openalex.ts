@@ -1,3 +1,4 @@
+import { describeHttpFailure, fetchJson } from "@/lib/http";
 import { normalizeWhitespace } from "@/lib/text";
 import type { Paper } from "@/types/research";
 
@@ -85,23 +86,16 @@ export async function searchOpenAlex(
   }
 
   try {
-    const response = await fetch(url, {
-      headers: { "User-Agent": "ResearchCopilot/0.1" },
-      signal: AbortSignal.timeout(12_000),
-      next: { revalidate: 3600 },
-    });
-    if (!response.ok) throw new Error(`OpenAlex returned ${response.status}`);
-    const payload = (await response.json()) as { results?: OpenAlexWork[] };
+    const payload = await fetchJson<{ results?: OpenAlexWork[] }>(url);
     const papers = (payload.results ?? [])
       .map(mapWork)
       .filter((paper): paper is Paper => Boolean(paper));
-    if (papers.length) return { papers };
-    return { papers: [], warning: "OpenAlex 没有返回可用结果。" };
+    return { papers };
   } catch (error) {
     console.warn("OpenAlex search failed.", error);
     return {
       papers: [],
-      warning: "OpenAlex 暂时不可用，本次没有使用示例数据替代真实来源。",
+      warning: `${describeHttpFailure("OpenAlex", error)}本次没有使用示例数据替代真实来源。`,
     };
   }
 }

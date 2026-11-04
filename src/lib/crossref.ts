@@ -1,3 +1,4 @@
+import { describeHttpFailure, fetchJson } from '@/lib/http';
 import { normalizeWhitespace } from '@/lib/text';
 import type { Paper } from '@/types/research';
 
@@ -34,13 +35,7 @@ export async function searchCrossref(
   if (process.env.OPENALEX_MAILTO) url.searchParams.set('mailto', process.env.OPENALEX_MAILTO);
 
   try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'ResearchCopilot/0.1' },
-      signal: AbortSignal.timeout(12_000),
-      next: { revalidate: 3600 },
-    });
-    if (!response.ok) throw new Error(`Crossref returned ${response.status}`);
-    const payload = await response.json() as { message?: { items?: CrossrefWork[] } };
+    const payload = await fetchJson<{ message?: { items?: CrossrefWork[] } }>(url);
     const papers = (payload.message?.items ?? []).flatMap((work): Paper[] => {
       const title = plainText(work.title?.[0] ?? '');
       if (!title) return [];
@@ -64,6 +59,6 @@ export async function searchCrossref(
     return { papers };
   } catch (error) {
     console.warn('Crossref search failed.', error);
-    return { papers: [], warning: 'Crossref 暂时不可用。' };
+    return { papers: [], warning: describeHttpFailure('Crossref', error) };
   }
 }

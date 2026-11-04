@@ -42,7 +42,7 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
     'search_sources',
     {
       title: 'Search research sources',
-      description: 'Search academic papers, books, and web references using multiple providers.',
+      description: 'Search public academic indexes, encyclopedias, books, and web references.',
       inputSchema: {
         queries: z.array(z.string().min(2)).min(1).max(4),
         intent: z.enum(['academic', 'book_review', 'general']),
@@ -51,8 +51,10 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ queries, intent, yearFrom, limit }) =>
-      toolResult(await searchExternalSources({ queries, intent, yearFrom, limit })),
+    async ({ queries, intent, yearFrom, limit }) => {
+      const ai = await resolveAiRuntimeConfig(scope).catch(() => undefined);
+      return toolResult(await searchExternalSources({ queries, intent, yearFrom, limit, ai }));
+    },
   );
 
   server.registerTool(
