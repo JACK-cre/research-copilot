@@ -54,7 +54,7 @@ services:
       - key: EMBEDDING_MODEL
         value: text-embedding-3-small
       - key: EMBEDDING_DIMENSIONS
-        value: "384"
+        value: "512"
       - key: AI_ACCESS_MODE
         value: hybrid
       - key: AI_KEY_ENCRYPTION_SECRET

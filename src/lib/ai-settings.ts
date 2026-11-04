@@ -3,6 +3,7 @@ import 'server-only';
 import { isIP } from 'node:net';
 
 import { getDatabasePool } from '@/lib/db';
+import { inferEmbeddingDimensions } from '@/lib/embedding-dimensions';
 import {
   createEmbeddingIdentity,
   getAiAccessMode,
@@ -29,7 +30,7 @@ export interface SaveAiSettingsInput {
   embeddingApiKey?: string;
   embeddingBaseURL: string;
   embeddingModel: string;
-  embeddingDimensions: number;
+  embeddingDimensions?: number;
 }
 
 function isPrivateAddress(hostname: string): boolean {
@@ -92,7 +93,11 @@ function personalRuntimeConfig(settings: StoredAiSettings): AiRuntimeConfig {
     embeddingApiKey,
     embeddingBaseURL,
     embeddingModel: settings.embedding_model,
-    embeddingDimensions: settings.embedding_dimensions,
+    embeddingDimensions: inferEmbeddingDimensions(
+      settings.embedding_model,
+      embeddingBaseURL,
+      settings.embedding_dimensions,
+    ),
     embeddingIdentity: createEmbeddingIdentity(embeddingBaseURL, settings.embedding_model),
   };
 }
@@ -187,7 +192,7 @@ export async function saveAiSettings(scope: DataScope, input: SaveAiSettingsInpu
       encryptedEmbeddingApiKey,
       embeddingBaseURL,
       input.embeddingModel,
-      input.embeddingDimensions,
+      inferEmbeddingDimensions(input.embeddingModel, embeddingBaseURL, input.embeddingDimensions),
     ],
   );
 }

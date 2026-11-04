@@ -56,7 +56,7 @@ export function chunkText(
   return chunks;
 }
 
-export function hashEmbedding(text: string, dimensions = 384): number[] {
+export function hashEmbedding(text: string, dimensions = 512): number[] {
   const vector = new Array<number>(dimensions).fill(0);
   const tokens = tokenize(text);
 

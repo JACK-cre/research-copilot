@@ -17,7 +17,14 @@ const settingsSchema = z.object({
   embeddingApiKey: z.string().trim().min(20).max(500).optional(),
   embeddingBaseURL: z.string().trim().url().max(500),
   embeddingModel: z.string().trim().min(1).max(120),
-  embeddingDimensions: z.literal(384),
+  embeddingDimensions: z.union([
+    z.literal(256),
+    z.literal(384),
+    z.literal(512),
+    z.literal(1024),
+    z.literal(1536),
+    z.literal(2048),
+  ]).optional(),
 });
 
 export async function GET() {

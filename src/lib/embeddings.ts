@@ -30,8 +30,14 @@ export async function embedTexts(
     const vectors = response.data
       .sort((left, right) => left.index - right.index)
       .map((item) => item.embedding);
-    if (vectors.length !== texts.length || vectors.some((vector) => vector.length !== config.embeddingDimensions)) {
-      throw new Error('Embedding 服务返回了数量或维度不匹配的向量。');
+    const actual = vectors[0]?.length;
+    if (vectors.length !== texts.length) {
+      throw new Error('Embedding 服务返回的向量数量与文本数量不一致。');
+    }
+    if (vectors.some((vector) => vector.length !== config.embeddingDimensions)) {
+      throw new Error(
+        `服务返回了 ${actual ?? 0} 维向量，当前配置需要 ${config.embeddingDimensions} 维。智谱 embedding-3 仅支持 256/512/1024/2048，本项目使用 512。`,
+      );
     }
     return vectors;
   } catch (error) {

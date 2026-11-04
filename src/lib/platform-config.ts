@@ -1,3 +1,4 @@
+import { inferEmbeddingDimensions } from '@/lib/embedding-dimensions';
 import type { AiCredentialSource, AiRuntimeConfig } from '@/types/platform';
 
 export function getDatabaseUrl(): string | undefined {
@@ -9,7 +10,7 @@ export function isHostedPlatformConfigured(): boolean {
 }
 
 export function getEmbeddingDimensions(): number {
-  const parsed = Number(process.env.EMBEDDING_DIMENSIONS ?? 384);
+  const parsed = Number(process.env.EMBEDDING_DIMENSIONS ?? 512);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error('EMBEDDING_DIMENSIONS 必须是正整数。');
   }
@@ -42,7 +43,11 @@ export function getPlatformAiRuntimeConfig(): AiRuntimeConfig {
     || (configuredEmbeddingBaseURL === baseURL ? apiKey : undefined);
   const configuredEmbeddingModel = process.env.EMBEDDING_MODEL?.trim() || 'text-embedding-3-small';
   const embeddingModel = embeddingApiKey ? configuredEmbeddingModel : 'local-hash-v1';
-  const embeddingDimensions = getEmbeddingDimensions();
+  const embeddingDimensions = inferEmbeddingDimensions(
+    embeddingModel,
+    configuredEmbeddingBaseURL,
+    getEmbeddingDimensions(),
+  );
   return {
     source: apiKey ? 'platform' : 'local',
     apiKey: apiKey || undefined,
