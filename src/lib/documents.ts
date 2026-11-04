@@ -61,7 +61,7 @@ export async function parseUpload(
     status: 'ready',
     sha256: createHash('sha256').update(bytes).digest('hex'),
     embeddingModel: ai.embeddingIdentity,
-    embeddingDimensions: ai.embeddingDimensions,
+    embeddingDimensions: vectors[0]?.length ?? ai.embeddingDimensions,
   };
   const chunks: KnowledgeChunk[] = parts.map((content, index) => ({
     id: documentId + ':' + index,

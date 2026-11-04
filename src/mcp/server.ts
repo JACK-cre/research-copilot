@@ -76,7 +76,7 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       const semanticPromise = embedTextWithConfig(query, ai)
         .then((queryVector) => store.search(queryVector, limit * 3, scope, {
           model: ai.embeddingIdentity,
-          dimensions: ai.embeddingDimensions,
+          dimensions: queryVector.length,
         }));
       const [semanticResult, keywordResult] = await Promise.allSettled([
         semanticPromise,

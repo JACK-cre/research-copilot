@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import { getDatabasePool } from '@/lib/db';
 import { calculateKeywordScore, extractKeywordTerms } from '@/lib/hybrid-search';
-import { toStorageVector } from '@/lib/embedding-dimensions';
 import { getDatabaseUrl, getEmbeddingIdentity } from '@/lib/platform-config';
 import { cosineSimilarity } from '@/lib/text';
 import type { DataScope } from '@/types/platform';
@@ -129,11 +128,10 @@ class PgVectorStore implements VectorStore {
 
   private ensureLegacySchema(): Promise<void> {
     if (!this.legacyInitialized) {
-      const dimensions = getEmbeddingIdentity().dimensions;
       const schema = [
         'CREATE EXTENSION IF NOT EXISTS vector;',
         'CREATE TABLE IF NOT EXISTS knowledge_documents (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, size INTEGER NOT NULL, chunk_count INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL);',
-        'CREATE TABLE IF NOT EXISTS knowledge_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, document_name TEXT NOT NULL, content TEXT NOT NULL, page INTEGER, embedding vector(' + dimensions + ') NOT NULL);',
+        'CREATE TABLE IF NOT EXISTS knowledge_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, document_name TEXT NOT NULL, content TEXT NOT NULL, page INTEGER, embedding vector NOT NULL);',
       ].join('\n');
       this.legacyInitialized = this.pool.query(schema).then(() => undefined);
     }
@@ -289,7 +287,7 @@ class PgVectorStore implements VectorStore {
         for (const chunk of chunks) {
           await client.query(
             'INSERT INTO document_chunks (id, document_id, workspace_id, document_name, content, page, embedding) VALUES ($1, $2, $3, $4, $5, $6, $7::vector)',
-            [chunk.id, chunk.documentId, scope.workspaceId, chunk.documentName, chunk.content, chunk.page ?? null, '[' + toStorageVector(chunk.embedding).join(',') + ']'],
+            [chunk.id, chunk.documentId, scope.workspaceId, chunk.documentName, chunk.content, chunk.page ?? null, '[' + chunk.embedding.join(',') + ']'],
           );
         }
       } else {
@@ -334,7 +332,7 @@ class PgVectorStore implements VectorStore {
   ): Promise<KnowledgeSearchResult[]> {
     const embedding = requestedEmbedding ?? getEmbeddingIdentity();
     if (scope?.mode !== 'cloud') await this.ensureLegacySchema();
-    const storedQueryVector = scope?.mode === 'cloud' ? toStorageVector(queryVector) : queryVector;
+    const queryDimensions = queryVector.length;
     const result = await this.pool.query<{
       id: string;
       document_id: string;
@@ -350,11 +348,12 @@ class PgVectorStore implements VectorStore {
          WHERE c.workspace_id = $2
            AND d.embedding_model = $3
            AND d.embedding_dimensions = $4
+           AND vector_dims(c.embedding) = $4
          ORDER BY c.embedding <=> $1::vector
          LIMIT $5`
       : 'SELECT id, document_id, document_name, content, page, 1 - (embedding <=> $1::vector) AS score FROM knowledge_chunks ORDER BY embedding <=> $1::vector LIMIT $2',
     scope?.mode === 'cloud'
-      ? ['[' + storedQueryVector.join(',') + ']', scope.workspaceId, embedding.model, embedding.dimensions, limit]
+      ? ['[' + queryVector.join(',') + ']', scope.workspaceId, embedding.model, queryDimensions, limit]
       : ['[' + queryVector.join(',') + ']', limit]);
     return result.rows.map((row) => ({
       id: row.id,

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { inferEmbeddingDimensions, isZhipuBaseUrl } from '@/lib/embedding-dimensions';
+import { isZhipuBaseUrl } from '@/lib/embedding-dimensions';
 import type {
   KnowledgeChunkPreview,
   KnowledgeDocument,
@@ -753,7 +753,6 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
           embeddingApiKey: embeddingApiKey.trim() || undefined,
           embeddingBaseURL,
           embeddingModel,
-          embeddingDimensions: inferEmbeddingDimensions(embeddingModel, embeddingBaseURL),
         }),
       });
       const payload = await response.json();
@@ -905,9 +904,9 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
         <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 对话接口；下方可独立配置中文 Embedding。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
         <div className="settings-grid">
           <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
-          <div className="embedding-setting"><span>知识库检索模式</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>中文语义（推荐）</button><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>无向量服务</button></div>{embeddingModel === 'local-hash-v1' ? <small>仅使用严格关键词检索；哈希向量不会单独进入证据池，准确性优先但召回较少。</small> : <small>使用独立 Embedding 接口生成中文语义向量（智谱 embedding-3 为 512 维），并与关键词召回融合。</small>}</div>
+          <div className="embedding-setting"><span>知识库检索模式</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>中文语义（推荐）</button><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>无向量服务</button></div>{embeddingModel === 'local-hash-v1' ? <small>仅使用严格关键词检索；哈希向量不会单独进入证据池，准确性优先但召回较少。</small> : <small>使用独立 Embedding 接口生成中文语义向量，维度按模型实际返回值存储，换模型后请重新上传资料。</small>}</div>
         </div>
-        {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>智谱请填 embedding-3，不要填 jina-embeddings-v3。若接口地址与对话相同，Key 可留空复用。</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
+        {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>填服务商真实模型名即可，例如智谱 embedding-3。维度会按接口返回值自动适配；接口地址与对话相同则 Key 可留空复用。</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
     </section>
