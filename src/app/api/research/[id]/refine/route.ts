@@ -16,7 +16,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 const refineSchema = z.object({
-  instruction: z.string().trim().min(2).max(3000),
+  instruction: z.string().trim().min(2).max(50000),
   target: z.enum(['all', 'report', 'slides']).default('all'),
   templateId: z.string().trim().max(120).optional(),
 });

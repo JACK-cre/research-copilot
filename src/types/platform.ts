@@ -46,6 +46,8 @@ export interface OutputTemplate {
   instructions: string;
   isDefault: boolean;
   createdAt?: string;
+  paperSourceName?: string;
+  slidesSourceName?: string;
 }
 
 export type OutputTemplateSnapshot = Omit<OutputTemplate, 'createdAt'>;
@@ -81,4 +83,39 @@ export interface ResearchArtifact {
   fileName: string;
   size: number;
   createdAt: string;
+}
+
+export interface StudyToolTrace {
+  name: string;
+  summary: string;
+}
+
+export interface StudyCitation {
+  id: string;
+  title: string;
+  url?: string;
+}
+
+export interface StudyMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations: StudyCitation[];
+  toolTrace: StudyToolTrace[];
+  createdAt: string;
+}
+
+export interface StudyConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messageCount: number;
+  hasMemory?: boolean;
+}
+
+export interface StudyConversationDetail {
+  id: string;
+  title: string;
+  memorySummary: string;
+  messages: StudyMessage[];
 }

@@ -27,6 +27,10 @@ const SLIDE_TYPE_ALIASES: Record<string, typeof SLIDE_TYPES[number]> = {
   next: 'roadmap',
 };
 
+const MAX_SECTIONS = 60;
+const MAX_SLIDES = 64;
+const MAX_KEY_POINTS = 24;
+
 const generatedOutputSchema = z.object({
   title: z.string().trim().min(1),
   thesis: z.string().trim().min(1),
@@ -36,16 +40,16 @@ const generatedOutputSchema = z.object({
       content: z.string().trim().min(1),
       citations: z.array(z.string()).default([]),
     }),
-  ).min(1).max(12),
+  ).min(1).max(MAX_SECTIONS),
   slides: z.array(
     z.object({
       type: z.enum(SLIDE_TYPES),
       title: z.string().trim().min(1),
-      keyPoints: z.array(z.string().trim().min(1)).min(1).max(8),
+      keyPoints: z.array(z.string().trim().min(1)).min(1).max(MAX_KEY_POINTS),
       citations: z.array(z.string()).default([]),
       speakerNotes: z.string().default(''),
     }),
-  ).min(1).max(16),
+  ).min(1).max(MAX_SLIDES),
 });
 
 const rerankOutputSchema = z.object({
@@ -97,7 +101,7 @@ export function normalizeGeneratedResearchOutput(value: unknown): GeneratedOutpu
     return {
       type: coerceSlideType(slide.type, index),
       title: asText(slide.title) || `幻灯片 ${index + 1}`,
-      keyPoints: keyPoints.slice(0, 8),
+      keyPoints: keyPoints.slice(0, MAX_KEY_POINTS),
       citations: asTextList(slide.citations),
       speakerNotes: asText(slide.speakerNotes) || asText(slide.notes) || asText(slide.speaker_notes),
     };
@@ -105,18 +109,18 @@ export function normalizeGeneratedResearchOutput(value: unknown): GeneratedOutpu
   return generatedOutputSchema.parse({
     title: asText(raw.title) || '未命名研究',
     thesis: asText(raw.thesis) || asText(raw.summary) || '模型未给出明确核心判断。',
-    sections: sections.length ? sections : [{
+    sections: (sections.length ? sections : [{
       title: '综述',
       content: asText(raw.content) || asText(raw.thesis) || '模型未返回分节内容。',
       citations: [],
-    }],
-    slides: slides.length ? slides : [{
+    }]).slice(0, MAX_SECTIONS),
+    slides: (slides.length ? slides : [{
       type: 'title',
       title: asText(raw.title) || '研究结果',
       keyPoints: [asText(raw.thesis) || '请根据证据继续完善幻灯片。'],
       citations: [],
       speakerNotes: '',
-    }],
+    }]).slice(0, MAX_SLIDES),
   });
 }
 
@@ -141,3 +145,53 @@ export function normalizeRerankOutput(value: unknown): z.infer<typeof rerankOutp
   });
 }
 
+
+
+const criticSchema = z.object({
+  score: z.number().min(0).max(1),
+  issues: z.array(z.string().trim().min(1)).max(8).default([]),
+  shouldRevise: z.boolean().default(false),
+});
+
+export function normalizeCriticOutput(value: unknown): z.infer<typeof criticSchema> {
+  if (!value || typeof value !== 'object') {
+    throw new Error('审校模型没有返回 JSON 对象。');
+  }
+  const raw = value as Record<string, unknown>;
+  const score = Number(raw.score);
+  return criticSchema.parse({
+    score: Number.isFinite(score) ? Math.min(1, Math.max(0, score)) : 0,
+    issues: asTextList(raw.issues).slice(0, 8),
+    shouldRevise: Boolean(raw.shouldRevise ?? raw.revise),
+  });
+}
+
+const studyActionSchema = z.object({
+  type: z.enum(['tool', 'final']),
+  name: z.string().trim().default(''),
+  arguments: z.record(z.string(), z.any()).default({}),
+  content: z.string().default(''),
+  citations: z.array(z.string()).default([]),
+});
+
+export function normalizeStudyAction(value: unknown): z.infer<typeof studyActionSchema> {
+  if (!value || typeof value !== 'object') {
+    throw new Error('对话模型没有返回 JSON 对象。');
+  }
+  const raw = value as Record<string, unknown>;
+  const type = asText(raw.type).toLowerCase() === 'tool' || asText(raw.action).toLowerCase() === 'tool'
+    ? 'tool'
+    : 'final';
+  const args = raw.arguments && typeof raw.arguments === 'object' && !Array.isArray(raw.arguments)
+    ? raw.arguments as Record<string, unknown>
+    : raw.args && typeof raw.args === 'object' && !Array.isArray(raw.args)
+      ? raw.args as Record<string, unknown>
+      : {};
+  return studyActionSchema.parse({
+    type,
+    name: asText(raw.name) || asText(raw.tool),
+    arguments: args,
+    content: asText(raw.content) || asText(raw.answer) || asText(raw.text),
+    citations: asTextList(raw.citations),
+  });
+}

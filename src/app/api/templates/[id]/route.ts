@@ -2,16 +2,11 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { apiErrorStatus, requireDataScope } from '@/lib/auth';
+import { readTemplatePayload } from '@/lib/template-form';
 import { deleteOutputTemplate, updateOutputTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
-
-const templateSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  kind: z.enum(['report', 'presentation', 'both']),
-  description: z.string().trim().max(300).default(''),
-  instructions: z.string().trim().min(10).max(10000),
-});
+export const maxDuration = 60;
 
 export async function PUT(
   request: Request,
@@ -20,7 +15,7 @@ export async function PUT(
   try {
     const scope = await requireDataScope();
     const { id } = await params;
-    const input = templateSchema.parse(await request.json());
+    const input = await readTemplatePayload(request);
     const template = await updateOutputTemplate(scope, id, input);
     if (!template) return NextResponse.json({ error: '模板不存在或不可修改。' }, { status: 404 });
     return NextResponse.json({ template });

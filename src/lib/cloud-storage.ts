@@ -92,6 +92,18 @@ export async function uploadSourceFile(
   return key;
 }
 
+export async function uploadTemplateFile(
+  scope: DataScope,
+  templateId: string,
+  kind: 'paper' | 'slides',
+  file: File,
+): Promise<string> {
+  const key = `${scope.workspaceId}/templates/${templateId}/${kind}-${safeName(file.name)}`;
+  assertWorkspacePath(scope, key);
+  await putObject(key, new Uint8Array(await file.arrayBuffer()), file.type || 'application/octet-stream');
+  return key;
+}
+
 export async function uploadArtifact(
   scope: DataScope,
   runId: string,

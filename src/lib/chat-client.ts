@@ -14,6 +14,15 @@ export interface ChatJsonRequest {
   timeoutMs?: number;
 }
 
+export interface ChatTextRequest {
+  ai: ChatAiConfig;
+  system: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+}
+
 type ChatMessageLike = {
   content?: unknown;
   reasoning_content?: unknown;
@@ -152,3 +161,44 @@ export async function createChatJsonCompletion(input: ChatJsonRequest): Promise<
   }
   throw new Error(formatChatProviderError(lastError));
 }
+
+export async function createChatTextCompletion(input: ChatTextRequest): Promise<string> {
+  if (!input.ai.apiKey) throw new Error('未配置对话模型 API Key。');
+  if (!input.messages.length) throw new Error('对话内容不能为空。');
+
+  const client = new OpenAI({
+    apiKey: input.ai.apiKey,
+    baseURL: input.ai.baseURL,
+    timeout: input.timeoutMs ?? 150_000,
+  });
+  const extras = buildChatRequestExtras(input.ai.chatModel, input.ai.baseURL);
+  const maxTokens = input.maxTokens
+    ?? (isForcedThinkingChatModel(input.ai.chatModel) ? 8_192 : 4_096);
+
+  try {
+    const completion = await client.chat.completions.create({
+      model: input.ai.chatModel,
+      messages: [
+        { role: 'system' as const, content: input.system },
+        ...input.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      ],
+      temperature: input.temperature ?? 0.7,
+      max_tokens: maxTokens,
+      ...extras,
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+    const choice = completion.choices[0];
+    const text = readChatMessageText(choice?.message as ChatMessageLike | undefined);
+    if (!text) {
+      throw new Error(choice?.finish_reason === 'length'
+        ? '模型输出被截断，思考过程占用了全部生成额度。'
+        : '模型返回了空内容。');
+    }
+    return text;
+  } catch (error) {
+    throw new Error(formatChatProviderError(error));
+  }
+}
+

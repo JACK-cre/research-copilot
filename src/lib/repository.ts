@@ -11,6 +11,9 @@ import type {
   ResearchRunStatus,
   ResearchRunSummary,
   RevisionTarget,
+  StudyConversationDetail,
+  StudyConversationSummary,
+  StudyMessage,
 } from '@/types/platform';
 import type { ResearchRequest, ResearchResult } from '@/types/research';
 
@@ -284,3 +287,251 @@ export async function getArtifactStorageRecord(
     contentType: row.mime_type,
   } : null;
 }
+
+
+type MemoryStudyConversation = {
+  title: string;
+  updatedAt: string;
+  messages: StudyMessage[];
+  memorySummary: string;
+  memorySummaryMessageCount: number;
+};
+
+const memoryStudy = new Map<string, MemoryStudyConversation>();
+
+function conversationTitle(message: string): string {
+  const compact = message.replace(/\s+/g, ' ').trim();
+  return compact.slice(0, 36) || '新对话';
+}
+
+export async function listStudyConversations(scope: DataScope): Promise<StudyConversationSummary[]> {
+  if (scope.mode === 'legacy') {
+    return Array.from(memoryStudy.entries())
+      .map(([id, item]) => ({
+        id,
+        title: item.title,
+        updatedAt: item.updatedAt,
+        messageCount: item.messages.length,
+        hasMemory: Boolean(item.memorySummary.trim()),
+      }))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+  const result = await getDatabasePool().query<{
+    id: string;
+    title: string;
+    updated_at: Date;
+    message_count: string;
+    memory_summary: string;
+  }>(
+    `SELECT c.id, c.title, c.updated_at, COUNT(m.id)::text AS message_count,
+            COALESCE(c.memory_summary, '') AS memory_summary
+     FROM study_conversations c
+     LEFT JOIN study_messages m ON m.conversation_id = c.id
+     WHERE c.workspace_id = $1
+     GROUP BY c.id
+     ORDER BY c.updated_at DESC
+     LIMIT 40`,
+    [scope.workspaceId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    updatedAt: row.updated_at.toISOString(),
+    messageCount: Number(row.message_count),
+    hasMemory: Boolean(row.memory_summary.trim()),
+  }));
+}
+
+export async function getStudyMessages(scope: DataScope, conversationId: string): Promise<StudyMessage[]> {
+  if (scope.mode === 'legacy') return memoryStudy.get(conversationId)?.messages ?? [];
+  const result = await getDatabasePool().query<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    citations: StudyMessage['citations'];
+    tool_trace: StudyMessage['toolTrace'];
+    created_at: Date;
+  }>(
+    `SELECT id, role, content, citations, tool_trace, created_at
+     FROM study_messages
+     WHERE workspace_id = $1 AND conversation_id = $2
+     ORDER BY created_at ASC`,
+    [scope.workspaceId, conversationId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    role: row.role,
+    content: row.content,
+    citations: row.citations ?? [],
+    toolTrace: row.tool_trace ?? [],
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+export async function getStudyConversation(scope: DataScope, conversationId: string): Promise<StudyConversationDetail | null> {
+  const messages = await getStudyMessages(scope, conversationId);
+  if (scope.mode === 'legacy') {
+    const current = memoryStudy.get(conversationId);
+    if (!current) return null;
+    return {
+      id: conversationId,
+      title: current.title,
+      memorySummary: current.memorySummary,
+      messages,
+    };
+  }
+  const result = await getDatabasePool().query<{
+    id: string;
+    title: string;
+    memory_summary: string;
+  }>(
+    `SELECT id, title, COALESCE(memory_summary, '') AS memory_summary
+     FROM study_conversations
+     WHERE id = $1 AND workspace_id = $2`,
+    [conversationId, scope.workspaceId],
+  );
+  if (!result.rows[0]) return null;
+  return {
+    id: result.rows[0].id,
+    title: result.rows[0].title,
+    memorySummary: result.rows[0].memory_summary,
+    messages,
+  };
+}
+
+export async function updateStudyMemory(
+  scope: DataScope,
+  conversationId: string,
+  memorySummary: string,
+  memorySummaryMessageCount: number,
+): Promise<void> {
+  if (scope.mode === 'legacy') {
+    const current = memoryStudy.get(conversationId);
+    if (!current) return;
+    current.memorySummary = memorySummary;
+    current.memorySummaryMessageCount = memorySummaryMessageCount;
+    return;
+  }
+  await getDatabasePool().query(
+    `UPDATE study_conversations
+     SET memory_summary = $1, memory_summary_message_count = $2
+     WHERE id = $3 AND workspace_id = $4`,
+    [memorySummary, memorySummaryMessageCount, conversationId, scope.workspaceId],
+  );
+}
+
+export async function getStudyMemoryState(scope: DataScope, conversationId: string): Promise<{
+  memorySummary: string;
+  memorySummaryMessageCount: number;
+}> {
+  if (scope.mode === 'legacy') {
+    const current = memoryStudy.get(conversationId);
+    return {
+      memorySummary: current?.memorySummary ?? '',
+      memorySummaryMessageCount: current?.memorySummaryMessageCount ?? 0,
+    };
+  }
+  const result = await getDatabasePool().query<{
+    memory_summary: string;
+    memory_summary_message_count: number;
+  }>(
+    `SELECT COALESCE(memory_summary, '') AS memory_summary,
+            COALESCE(memory_summary_message_count, 0) AS memory_summary_message_count
+     FROM study_conversations
+     WHERE id = $1 AND workspace_id = $2`,
+    [conversationId, scope.workspaceId],
+  );
+  return {
+    memorySummary: result.rows[0]?.memory_summary ?? '',
+    memorySummaryMessageCount: Number(result.rows[0]?.memory_summary_message_count ?? 0),
+  };
+}
+
+export async function appendStudyTurn(
+  scope: DataScope,
+  input: {
+    conversationId?: string;
+    userMessage: string;
+    assistant: Pick<StudyMessage, 'content' | 'citations' | 'toolTrace'>;
+  },
+): Promise<{ conversationId: string; messages: StudyMessage[] }> {
+  const now = new Date().toISOString();
+  const user: StudyMessage = {
+    id: randomUUID(),
+    role: 'user',
+    content: input.userMessage,
+    citations: [],
+    toolTrace: [],
+    createdAt: now,
+  };
+  const assistant: StudyMessage = {
+    id: randomUUID(),
+    role: 'assistant',
+    content: input.assistant.content,
+    citations: input.assistant.citations,
+    toolTrace: input.assistant.toolTrace,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (scope.mode === 'legacy') {
+    const conversationId = input.conversationId && memoryStudy.has(input.conversationId)
+      ? input.conversationId
+      : randomUUID();
+    const current = memoryStudy.get(conversationId) ?? {
+      title: conversationTitle(input.userMessage),
+      updatedAt: now,
+      messages: [],
+      memorySummary: '',
+      memorySummaryMessageCount: 0,
+    };
+    current.messages = [...current.messages, user, assistant];
+    current.updatedAt = assistant.createdAt;
+    memoryStudy.set(conversationId, current);
+    return { conversationId, messages: current.messages };
+  }
+
+  const pool = getDatabasePool();
+  const conversationId = input.conversationId ?? randomUUID();
+  const existing = input.conversationId
+    ? await pool.query('SELECT id FROM study_conversations WHERE id = $1 AND workspace_id = $2', [conversationId, scope.workspaceId])
+    : { rowCount: 0 };
+  if (!existing.rowCount) {
+    await pool.query(
+      `INSERT INTO study_conversations (id, workspace_id, created_by, title)
+       VALUES ($1, $2, $3, $4)`,
+      [conversationId, scope.workspaceId, scope.userId, conversationTitle(input.userMessage)],
+    );
+  }
+  await pool.query(
+    `INSERT INTO study_messages (id, conversation_id, workspace_id, role, content, citations, tool_trace)
+     VALUES ($1, $2, $3, 'user', $4, '[]'::jsonb, '[]'::jsonb),
+            ($5, $2, $3, 'assistant', $6, $7::jsonb, $8::jsonb)`,
+    [
+      user.id,
+      conversationId,
+      scope.workspaceId,
+      user.content,
+      assistant.id,
+      assistant.content,
+      JSON.stringify(assistant.citations),
+      JSON.stringify(assistant.toolTrace),
+    ],
+  );
+  await pool.query(
+    'UPDATE study_conversations SET updated_at = now() WHERE id = $1 AND workspace_id = $2',
+    [conversationId, scope.workspaceId],
+  );
+  return { conversationId, messages: await getStudyMessages(scope, conversationId) };
+}
+
+export async function deleteStudyConversation(scope: DataScope, conversationId: string): Promise<void> {
+  if (scope.mode === 'legacy') {
+    memoryStudy.delete(conversationId);
+    return;
+  }
+  await getDatabasePool().query(
+    'DELETE FROM study_conversations WHERE id = $1 AND workspace_id = $2',
+    [conversationId, scope.workspaceId],
+  );
+}
+

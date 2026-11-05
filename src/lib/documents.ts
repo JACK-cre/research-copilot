@@ -8,7 +8,6 @@ import { chunkText, normalizeWhitespace } from '@/lib/text';
 import type { AiRuntimeConfig } from '@/types/platform';
 import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
 
-const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
   'application/pdf',
   'text/plain',
@@ -39,7 +38,6 @@ export async function parseUpload(
 ): Promise<ParsedUpload> {
   if (!file.name) throw new Error('文件名不能为空。');
   if (file.size === 0) throw new Error('文件内容为空。');
-  if (file.size > MAX_FILE_BYTES) throw new Error('单个文件不能超过 15 MB。');
   if (!ALLOWED_TYPES.has(file.type) && !/\.(pdf|md|txt)$/i.test(file.name)) {
     throw new Error('仅支持 PDF、Markdown 和 TXT 文件。');
   }

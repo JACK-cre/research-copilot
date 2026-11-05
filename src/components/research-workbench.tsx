@@ -16,6 +16,7 @@ import {
   GitBranch,
   KeyRound,
   Library,
+  MessageCircle,
   LoaderCircle,
   LogOut,
   PanelLeft,
@@ -28,9 +29,12 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { isZhipuBaseUrl } from '@/lib/embedding-dimensions';
+import { MODEL_PROVIDERS, embeddingRequirement, matchProvider } from '@/lib/providers';
+import { DEFAULT_RESEARCH_LAYOUT, LAYOUT_LIMITS, ResizeHandle, useResearchLayout } from '@/components/resize-handle';
+import { StudyChat } from '@/components/study-chat';
 import type {
   KnowledgeChunkPreview,
   KnowledgeDocument,
@@ -47,7 +51,7 @@ import type {
   TemplateKind,
 } from '@/types/platform';
 
-type WorkspaceView = 'research' | 'library' | 'history' | 'settings';
+type WorkspaceView = 'research' | 'study' | 'library' | 'history' | 'settings';
 type ResultTab = 'overview' | 'papers' | 'report' | 'slides';
 
 const initialRequest: ResearchRequest = {
@@ -96,6 +100,7 @@ function providerLabel(source: Paper['source']): string {
     'web-search': '网页搜索',
     'semantic-scholar': 'Semantic Scholar',
     'europe-pmc': 'Europe PMC',
+    arxiv: 'arXiv',
     demo: '示例',
   };
   return labels[source];
@@ -136,6 +141,10 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   const [revisionInstruction, setRevisionInstruction] = useState('');
   const [revisionTarget, setRevisionTarget] = useState<RevisionTarget>('all');
   const fileInput = useRef<HTMLInputElement>(null);
+  const researchLayoutRef = useRef<HTMLDivElement>(null);
+  const resultMetaRef = useRef<HTMLDivElement>(null);
+  const resultPanelRef = useRef<HTMLElement>(null);
+  const { layout, layoutRef, update: updateLayout } = useResearchLayout();
 
   const loadLibrary = useCallback(async () => {
     try {
@@ -401,6 +410,30 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     }
   }
 
+  function clampBrief(width: number) {
+    const container = researchLayoutRef.current?.clientWidth ?? 1280;
+    const max = Math.min(
+      LAYOUT_LIMITS.briefMax,
+      container - 16 - LAYOUT_LIMITS.middleMin - layoutRef.current.evidenceWidth,
+    );
+    return Math.min(Math.max(width, LAYOUT_LIMITS.briefMin), Math.max(LAYOUT_LIMITS.briefMin, max));
+  }
+
+  function clampEvidence(width: number) {
+    const container = researchLayoutRef.current?.clientWidth ?? 1280;
+    const max = Math.min(
+      LAYOUT_LIMITS.evidenceMax,
+      container - 16 - LAYOUT_LIMITS.middleMin - layoutRef.current.briefWidth,
+    );
+    return Math.min(Math.max(width, LAYOUT_LIMITS.evidenceMin), Math.max(LAYOUT_LIMITS.evidenceMin, max));
+  }
+
+  function clampMeta(height: number) {
+    const panel = resultPanelRef.current?.clientHeight ?? 720;
+    const max = Math.max(LAYOUT_LIMITS.metaMin, panel - LAYOUT_LIMITS.outputMin - 10);
+    return Math.min(Math.max(height, LAYOUT_LIMITS.metaMin), max);
+  }
+
   function navigate(nextView: WorkspaceView) {
     setView(nextView);
     setError('');
@@ -414,13 +447,16 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           <div className="brand-mark"><FlaskConical size={19} /></div>
           <div>
             <strong>Research Copilot</strong>
-            <span>论文 · 知识库 · PPT</span>
+            <span>论文 · 复习 · PPT</span>
           </div>
         </div>
 
         <nav className="primary-nav" aria-label="主导航">
           <button className={view === 'research' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('research')}>
             <Search size={17} />研究任务
+          </button>
+          <button className={view === 'study' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('study')}>
+            <MessageCircle size={17} />复习对话
           </button>
           <button className={view === 'library' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('library')}>
             <Library size={17} />知识库<span className="nav-count">{documents.length}</span>
@@ -443,8 +479,8 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       <section className="workspace">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{view === 'research' ? '从主题到论文和 PPT' : view === 'library' ? '本地资料与证据' : view === 'history' ? '可回看的研究版本' : '模型、检索与模板'}</span>
-            <h1>{view === 'research' ? '研究任务' : view === 'library' ? '知识库' : view === 'history' ? '研究历史' : '配置中心'}</h1>
+            <span className="eyebrow">{view === 'research' ? '从主题到论文和 PPT' : view === 'study' ? '日常对话、知识库问答与复习' : view === 'library' ? '本地资料与证据' : view === 'history' ? '可回看的研究版本' : '模型、检索与模板'}</span>
+            <h1>{view === 'research' ? '研究任务' : view === 'study' ? '复习对话' : view === 'library' ? '知识库' : view === 'history' ? '研究历史' : '配置中心'}</h1>
           </div>
           {view === 'research' && result ? (
             <div className="top-actions">
@@ -465,7 +501,15 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
         {notice ? <div className="message notice" role="status"><Check size={16} /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="关闭成功提示"><X size={14} /></button></div> : null}
 
         {view === 'research' ? (
-          <div className="research-layout">
+          <div
+            className={'research-layout' + (layout.metaHeight ? ' has-meta-size' : '')}
+            ref={researchLayoutRef}
+            style={{
+              '--brief-width': layout.briefWidth + 'px',
+              '--evidence-width': layout.evidenceWidth + 'px',
+              '--result-meta-height': layout.metaHeight ? layout.metaHeight + 'px' : 'auto',
+            } as CSSProperties}
+          >
             <aside className="brief-panel">
               <form onSubmit={runResearch}>
                 <div className="section-heading"><PanelLeft size={16} /><span>研究简报</span></div>
@@ -484,7 +528,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
 
                 <div className="two-columns">
                   <label className="control"><span>起始年份</span><input type="number" min="1900" max={new Date().getFullYear()} value={request.yearFrom} onChange={(event) => setRequest({ ...request, yearFrom: Number(event.target.value) })} /><small>读后感等历史主题会自动放宽到 1900 年，避免漏掉史料。</small></label>
-                  <label className="control"><span>目标来源数</span><input type="number" min="3" max="20" value={request.paperCount} onChange={(event) => setRequest({ ...request, paperCount: Number(event.target.value) })} /></label>
+                  <label className="control"><span>目标来源数</span><input type="number" min="3" max="40" value={request.paperCount} onChange={(event) => setRequest({ ...request, paperCount: Number(event.target.value) })} /></label>
                 </div>
 
                 <fieldset className="source-options">
@@ -508,7 +552,17 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
               </div>
             </aside>
 
-            <section className="result-panel">
+            <ResizeHandle
+              orientation="horizontal"
+              className="brief-split"
+              label="调整研究简报宽度"
+              value={layout.briefWidth}
+              min={LAYOUT_LIMITS.briefMin}
+              max={LAYOUT_LIMITS.briefMax}
+              onDrag={(delta) => updateLayout({ briefWidth: clampBrief(layoutRef.current.briefWidth + delta) })}
+              onReset={() => updateLayout({ briefWidth: DEFAULT_RESEARCH_LAYOUT.briefWidth })}
+            />
+            <section className="result-panel" ref={resultPanelRef}>
               {!result ? (
                 <div className="empty-state">
                   <div className="empty-visual" aria-hidden="true">
@@ -523,36 +577,63 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                 </div>
               ) : (
                 <>
-                  <div className="result-header">
-                    <div><span className="result-kicker">{result.mode === 'model' ? '模型综合' : '本地综合'}</span><h2>{result.title}</h2><p>{result.thesis}</p></div>
-                    <span className="result-id">V{result.version ?? 1} · RUN {result.id.slice(0, 6).toUpperCase()}</span>
-                  </div>
-
-                  {cloudEnabled ? <form className="revision-bar" onSubmit={refineResearch}>
-                    <div className="revision-heading"><GitBranch size={16} /><strong>继续完善 V{result.version ?? 1}</strong></div>
-                    <div className="revision-controls">
-                      <div className="segmented-control" aria-label="修改范围">{([['all', '全文与 PPT'], ['report', '仅论文'], ['slides', '仅 PPT']] as const).map(([value, label]) => <button type="button" className={revisionTarget === value ? 'active' : ''} onClick={() => setRevisionTarget(value)} key={value}>{label}</button>)}</div>
-                      <textarea value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} maxLength={3000} placeholder="补充本版修改要求" required />
-                      <button className="button primary" disabled={refining || !revisionInstruction.trim()}>{refining ? <LoaderCircle className="spin" size={16} /> : <GitBranch size={16} />}{refining ? '正在生成新版本' : '生成新版本'}</button>
+                  <div className="result-meta" ref={resultMetaRef}>
+                    <div className="result-header">
+                      <div><span className="result-kicker">{result.mode === 'model' ? '模型综合' : '本地综合'}</span><h2>{result.title}</h2><p>{result.thesis}</p></div>
+                      <span className="result-id">V{result.version ?? 1} · RUN {result.id.slice(0, 6).toUpperCase()}</span>
                     </div>
-                  </form> : null}
 
-                  <div className="tabs" role="tablist">
-                    {([['overview', '总览'], ['papers', '外部来源'], ['report', '文稿'], ['slides', 'PPT']] as const).map(([value, label]) => (
-                      <button key={value} className={tab === value ? 'tab active' : 'tab'} onClick={() => setTab(value)}>{label}{value === 'papers' ? <span>{result.papers.length}</span> : null}</button>
-                    ))}
+                    {cloudEnabled ? <form className="revision-bar" onSubmit={refineResearch}>
+                      <div className="revision-heading"><GitBranch size={16} /><strong>继续完善 V{result.version ?? 1}</strong></div>
+                      <div className="revision-controls">
+                        <div className="segmented-control" aria-label="修改范围">{([['all', '全文与 PPT'], ['report', '仅论文'], ['slides', '仅 PPT']] as const).map(([value, label]) => <button type="button" className={revisionTarget === value ? 'active' : ''} onClick={() => setRevisionTarget(value)} key={value}>{label}</button>)}</div>
+                        <textarea value={revisionInstruction} onChange={(event) => setRevisionInstruction(event.target.value)} maxLength={50000} placeholder="补充本版修改要求" required />
+                        <button className="button primary" disabled={refining || !revisionInstruction.trim()}>{refining ? <LoaderCircle className="spin" size={16} /> : <GitBranch size={16} />}{refining ? '正在生成新版本' : '生成新版本'}</button>
+                      </div>
+                    </form> : null}
                   </div>
 
-                  <div className="tab-content">
-                    {tab === 'overview' ? <Overview result={result} yearCounts={yearCounts} artifacts={artifacts} /> : null}
-                    {tab === 'papers' ? <Papers result={result} /> : null}
-                    {tab === 'report' ? <Report result={result} /> : null}
-                    {tab === 'slides' ? <Slides result={result} /> : null}
+                  <ResizeHandle
+                    orientation="vertical"
+                    className="meta-split"
+                    label="调整文稿阅读区域高度"
+                    value={layout.metaHeight ?? undefined}
+                    min={LAYOUT_LIMITS.metaMin}
+                    onDrag={(delta) => {
+                      const current = layoutRef.current.metaHeight ?? resultMetaRef.current?.offsetHeight ?? 220;
+                      updateLayout({ metaHeight: clampMeta(current + delta) });
+                    }}
+                    onReset={() => updateLayout({ metaHeight: null })}
+                  />
+
+                  <div className="result-output">
+                    <div className="tabs" role="tablist">
+                      {([['overview', '总览'], ['papers', '外部来源'], ['report', '文稿'], ['slides', 'PPT']] as const).map(([value, label]) => (
+                        <button key={value} className={tab === value ? 'tab active' : 'tab'} onClick={() => setTab(value)}>{label}{value === 'papers' ? <span>{result.papers.length}</span> : null}</button>
+                      ))}
+                    </div>
+
+                    <div className="tab-content">
+                      {tab === 'overview' ? <Overview result={result} yearCounts={yearCounts} artifacts={artifacts} /> : null}
+                      {tab === 'papers' ? <Papers result={result} /> : null}
+                      {tab === 'report' ? <Report result={result} /> : null}
+                      {tab === 'slides' ? <Slides result={result} /> : null}
+                    </div>
                   </div>
                 </>
               )}
             </section>
 
+            <ResizeHandle
+              orientation="horizontal"
+              className="evidence-split"
+              label="调整证据池宽度"
+              value={layout.evidenceWidth}
+              min={LAYOUT_LIMITS.evidenceMin}
+              max={LAYOUT_LIMITS.evidenceMax}
+              onDrag={(delta) => updateLayout({ evidenceWidth: clampEvidence(layoutRef.current.evidenceWidth - delta) })}
+              onReset={() => updateLayout({ evidenceWidth: DEFAULT_RESEARCH_LAYOUT.evidenceWidth })}
+            />
             <aside className="evidence-panel">
               <div className="section-heading"><Database size={16} /><span>证据池</span>{result ? <em>{result.evidence.length}</em> : null}</div>
               {result?.evidence.length ? result.evidence.slice(0, 10).map((item) => (
@@ -565,6 +646,8 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
               )) : <div className="rail-empty"><Database size={20} /><span>暂无证据</span></div>}
             </aside>
           </div>
+        ) : view === 'study' ? (
+          <StudyChat onError={setError} onNotice={setNotice} />
         ) : view === 'library' ? (
           <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} onError={setError} cloudEnabled={cloudEnabled} />
         ) : view === 'history' ? <HistoryView runs={runs} deletingRunId={deletingRunId} onOpen={openRun} onDelete={deleteRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
@@ -577,6 +660,7 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
   const maxCount = Math.max(1, ...yearCounts.map(([, count]) => count));
   return (
     <div className="overview-grid">
+      {result.agentTrace?.length ? <section className="content-section"><div className="section-title"><h3>多智能体流程</h3><span>{result.agentTrace.length} 个节点</span></div><div className="agent-timeline">{result.agentTrace.map((step) => <div className={'agent-step ' + step.status} key={step.agent + step.title}><strong>{step.title}</strong><span>{step.summary}</span><small>{step.status === 'failed' ? '失败' : step.status === 'skipped' ? '跳过' : '完成'} · {step.durationMs}ms</small></div>)}</div></section> : null}
       <div className="metrics-band">
         <div><strong>{result.papers.length}</strong><span>有效外部来源</span></div>
         <div><strong>{result.evidence.filter((item) => item.kind === 'knowledge').length}</strong><span>本地证据</span></div>
@@ -665,7 +749,7 @@ function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onEr
       <section className="upload-zone" onClick={() => fileInput.current?.click()}>
         {uploading ? <LoaderCircle className="spin" size={28} /> : <Upload size={28} />}
         <h2>{uploading ? '正在解析与向量化' : '添加研究资料'}</h2>
-        <p>PDF、Markdown、TXT · 单文件不超过 15 MB</p>
+        <p>PDF、Markdown、TXT，按文件解析，不限制单文件大小</p>
       </section>
       <section className="library-table-section">
         <div className="section-title"><h3>已索引资料</h3><span>{documents.length} 份文档</span></div>
@@ -706,11 +790,13 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   const [savingAi, setSavingAi] = useState(false);
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
-  const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const [paperTemplateFile, setPaperTemplateFile] = useState<File | null>(null);
+  const [slidesTemplateFile, setSlidesTemplateFile] = useState<File | null>(null);
   const [templateNote, setTemplateNote] = useState('');
   const [analysisMode, setAnalysisMode] = useState<'ai' | 'extracted' | null>(null);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const templateFileInput = useRef<HTMLInputElement>(null);
+  const paperTemplateInput = useRef<HTMLInputElement>(null);
+  const slidesTemplateInput = useRef<HTMLInputElement>(null);
   const templateEditor = useRef<HTMLDivElement>(null);
   const [templateDraft, setTemplateDraft] = useState<{
     name: string;
@@ -809,8 +895,8 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   }
 
   async function analyzeTemplate() {
-    if (!templateFile && templateNote.trim().length < 10) {
-      onError('请上传 Word/PDF，或填写至少 10 个字的补充要求。');
+    if (!paperTemplateFile && !slidesTemplateFile && templateNote.trim().length < 8) {
+      onError('请上传论文模板（Word/PDF）或 PPTX，或填写格式要求。');
       return;
     }
     setAnalyzingTemplate(true);
@@ -818,7 +904,8 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     onError('');
     try {
       const formData = new FormData();
-      if (templateFile) formData.append('file', templateFile);
+      if (paperTemplateFile) formData.append('paper', paperTemplateFile);
+      if (slidesTemplateFile) formData.append('slides', slidesTemplateFile);
       formData.append('note', templateNote);
       const response = await fetch('/api/templates/analyze', { method: 'POST', body: formData });
       const payload = await response.json();
@@ -845,21 +932,30 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     setSavingTemplate(true);
     onError('');
     try {
+      const formData = new FormData();
+      formData.append('name', templateDraft.name);
+      formData.append('kind', templateDraft.kind);
+      formData.append('description', templateDraft.description);
+      formData.append('instructions', templateDraft.instructions);
+      if (paperTemplateFile) formData.append('paper', paperTemplateFile);
+      if (slidesTemplateFile) formData.append('slides', slidesTemplateFile);
       const response = await fetch(editingTemplateId ? '/api/templates/' + editingTemplateId : '/api/templates', {
         method: editingTemplateId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(templateDraft),
+        body: formData,
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '模板保存失败');
+      const wasEditing = Boolean(editingTemplateId);
       setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '' });
-      setTemplateFile(null);
+      setPaperTemplateFile(null);
+      setSlidesTemplateFile(null);
       setTemplateNote('');
       setAnalysisMode(null);
       setEditingTemplateId(null);
-      if (templateFileInput.current) templateFileInput.current.value = '';
+      if (paperTemplateInput.current) paperTemplateInput.current.value = '';
+      if (slidesTemplateInput.current) slidesTemplateInput.current.value = '';
       await onTemplatesChanged();
-      onNotice(editingTemplateId ? '模板修改已保存' : '自定义模板已保存并会在后续登录中保留');
+      onNotice(wasEditing ? '模板修改已保存' : '自定义模板已保存并会在后续登录中保留');
     } catch (saveError) {
       onError(saveError instanceof Error ? saveError.message : '模板保存失败');
     } finally {
@@ -886,24 +982,34 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       description: template.description,
       instructions: template.instructions,
     });
-    setTemplateFile(null);
+    setPaperTemplateFile(null);
+    setSlidesTemplateFile(null);
     setTemplateNote('');
     setAnalysisMode(null);
     setEditingTemplateId(template.isDefault ? null : template.id);
-    if (templateFileInput.current) templateFileInput.current.value = '';
+    if (paperTemplateInput.current) paperTemplateInput.current.value = '';
+    if (slidesTemplateInput.current) slidesTemplateInput.current.value = '';
     window.requestAnimationFrame(() => templateEditor.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   }
 
   function cancelTemplateEdit() {
     setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '' });
+    setPaperTemplateFile(null);
+    setSlidesTemplateFile(null);
+    setTemplateNote('');
+    setAnalysisMode(null);
     setEditingTemplateId(null);
+    if (paperTemplateInput.current) paperTemplateInput.current.value = '';
+    if (slidesTemplateInput.current) slidesTemplateInput.current.value = '';
   }
 
   const customTemplates = templates.filter((template) => !template.isDefault);
   return <div className="settings-layout">
     <section className="settings-section">
       <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
-      <p className="settings-description">对话模型负责检索重排、论文、PPT 和模板识别；Embedding 服务负责知识库中文语义检索。两者可以使用不同服务商，密钥分别加密保存。</p>
+      <p className="settings-description">对话模型负责检索重排、论文、PPT、复习对话和模板识别；Embedding 服务负责知识库中文语义检索。两者可以使用不同服务商，密钥分别加密保存。</p>
+      <div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'embedding').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(baseURL)?.id === provider.id ? ' active' : '')} key={provider.id} onClick={() => { setBaseURL(provider.baseURL); if (provider.chatModels[0]) setChatModel(provider.chatModels[0]); if (provider.kind === 'both' && embeddingModel !== 'local-hash-v1') { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); } }}>{provider.name}</button>)}</div>
+      <p className="provider-links">{matchProvider(baseURL) ? <><a href={matchProvider(baseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(baseURL)!.name} API Key</a>{matchProvider(baseURL)!.docsUrl ? <> · <a href={matchProvider(baseURL)!.docsUrl} target="_blank" rel="noreferrer">接口说明</a></> : null}</> : <span>填写任意 OpenAI 兼容地址。常用入口：{MODEL_PROVIDERS.map((provider) => <a href={provider.keyUrl} target="_blank" rel="noreferrer" key={provider.id}>{provider.name}</a>)}</span>}</p>
       <form className="settings-form" onSubmit={saveAi}>
         <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已加密保存，留空不会修改' : '填写服务商提供的 API Key'} /><small>仅加密保存在你的账户下，不会显示给其他用户。</small></label>
         <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 对话接口；下方可独立配置中文 Embedding。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
@@ -911,33 +1017,38 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
           <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
           <div className="embedding-setting"><span>知识库检索模式</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>中文语义（推荐）</button><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>无向量服务</button></div>{embeddingModel === 'local-hash-v1' ? <small>仅使用严格关键词检索；哈希向量不会单独进入证据池，准确性优先但召回较少。</small> : <small>使用独立 Embedding 接口生成中文语义向量，维度按模型实际返回值存储，换模型后请重新上传资料。</small>}</div>
         </div>
-        {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>填服务商真实模型名即可，例如智谱 embedding-3。维度会按接口返回值自动适配；接口地址与对话相同则 Key 可留空复用。</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
+        {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'chat').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(embeddingBaseURL)?.id === provider.id ? ' active' : '')} key={'emb-' + provider.id} onClick={() => { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); }}>{provider.name}</button>)}</div><p className="provider-links">{matchProvider(embeddingBaseURL) ? <a href={matchProvider(embeddingBaseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(embeddingBaseURL)!.name} Embedding Key</a> : null}</p><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>{embeddingRequirement(embeddingBaseURL, embeddingModel)}</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
     </section>
 
     <section className="settings-section">
       <div className="settings-title"><FileText size={19} /><div><h2>输出模板</h2><span>{templates.filter((template) => template.isDefault).length} 个内置 · {customTemplates.length} 个自定义</span></div></div>
-      <p className="settings-description">上传学校、期刊或汇报要求作为参考，也可以直接描述规则。系统只提取版式与结构，不会把参考文件的主题内容混进论文。</p>
+      <p className="settings-description">可以分别上传论文样式（Word/PDF）和 PPT 样式（PPTX）。系统只提取版式、结构和视觉规则，不会把参考文件的主题内容混进论文。</p>
       <form className="settings-form template-form" onSubmit={saveTemplate}>
         <div className="template-source-grid">
-          <input ref={templateFileInput} type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={(event) => { setTemplateFile(event.target.files?.[0] ?? null); setAnalysisMode(null); }} />
-          <button className={'template-upload ' + (templateFile ? 'has-file' : '')} type="button" onClick={() => templateFileInput.current?.click()}>
-            {templateFile ? <Check size={20} /> : <Upload size={20} />}
-            <span><strong>{templateFile ? templateFile.name : '选择参考文件'}</strong><small>{templateFile ? formatBytes(templateFile.size) : '支持 DOCX、可搜索文字的 PDF，最大 10 MB'}</small></span>
+          <input ref={paperTemplateInput} type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={(event) => { setPaperTemplateFile(event.target.files?.[0] ?? null); setAnalysisMode(null); }} />
+          <input ref={slidesTemplateInput} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden onChange={(event) => { setSlidesTemplateFile(event.target.files?.[0] ?? null); setAnalysisMode(null); }} />
+          <button className={'template-upload ' + (paperTemplateFile ? 'has-file' : '')} type="button" onClick={() => paperTemplateInput.current?.click()}>
+            {paperTemplateFile ? <Check size={20} /> : <FileText size={20} />}
+            <span><strong>{paperTemplateFile ? paperTemplateFile.name : '上传论文模板'}</strong><small>{paperTemplateFile ? formatBytes(paperTemplateFile.size) : 'DOCX 或可搜索 PDF，不限制大小'}</small></span>
           </button>
-          <label className="template-note"><span>补充要求</span><textarea value={templateNote} onChange={(event) => { setTemplateNote(event.target.value); setAnalysisMode(null); }} placeholder="例如：正文约 8000 字，三级标题；PPT 控制在 12 页，并保留答辩备注。也可以不上传文件，只在这里描述。" maxLength={5000} /></label>
+          <button className={'template-upload ' + (slidesTemplateFile ? 'has-file' : '')} type="button" onClick={() => slidesTemplateInput.current?.click()}>
+            {slidesTemplateFile ? <Check size={20} /> : <Presentation size={20} />}
+            <span><strong>{slidesTemplateFile ? slidesTemplateFile.name : '上传 PPT 模板'}</strong><small>{slidesTemplateFile ? formatBytes(slidesTemplateFile.size) : 'PPTX 版式、配色和页结构'}</small></span>
+          </button>
+          <label className="template-note"><span>补充要求</span><textarea value={templateNote} onChange={(event) => { setTemplateNote(event.target.value); setAnalysisMode(null); }} placeholder="例如：正文约 8000 字，三级标题；PPT 按学校模板 18 页，并保留答辩备注。也可以不上传文件，只在这里描述。" maxLength={50000} /></label>
         </div>
         <div className="settings-actions analyze-actions"><button type="button" className="button secondary" disabled={analyzingTemplate} onClick={() => void analyzeTemplate()}>{analyzingTemplate ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{analyzingTemplate ? '正在识别' : '智能提取规则'}</button>{analysisMode ? <span className="analysis-status"><Check size={14} />{analysisMode === 'ai' ? 'AI 已完成提炼' : '已提取原始要求'}</span> : null}</div>
 
         <div className="template-editor" ref={templateEditor}>
           <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} placeholder="例如：本科毕业论文" required /></label><label><span>适用内容</span><select value={templateDraft.kind} onChange={(event) => setTemplateDraft({ ...templateDraft, kind: event.target.value as TemplateKind })}><option value="both">论文与 PPT</option><option value="report">仅论文/报告</option><option value="presentation">仅 PPT</option></select></label></div>
           <label><span>用途说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} placeholder="这套模板适合什么任务" /></label>
-          <label><span>识别出的生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="上传文件并智能识别，或直接在这里填写章节、篇幅、版式和展示要求。" minLength={10} maxLength={10000} required /></label>
+          <label><span>识别出的生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="上传论文/PPT 模板并智能识别，或直接在这里填写章节、篇幅、版式和展示要求。" minLength={8} maxLength={100000} required /></label>
         </div>
-        <div className="settings-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 10}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{editingTemplateId ? '保存修改' : '保存为模板'}</button>{editingTemplateId ? <button className="button secondary" type="button" onClick={cancelTemplateEdit}>取消编辑</button> : null}</div>
+        <div className="settings-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 8}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{editingTemplateId ? '保存修改' : '保存为模板'}</button>{editingTemplateId ? <button className="button secondary" type="button" onClick={cancelTemplateEdit}>取消编辑</button> : null}</div>
       </form>
-      <div className="template-list">{templates.map((template) => <div className={'template-row ' + (editingTemplateId === template.id ? 'editing' : '')} key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.description ? ` · ${template.description}` : ''}</span></div><div className="template-row-actions">{template.isDefault ? <span className="default-label">内置</span> : null}<button className="icon-button" type="button" onClick={() => editTemplate(template)} title={template.isDefault ? '复制为自定义模板' : '编辑模板'} aria-label={(template.isDefault ? '复制并编辑 ' : '编辑 ') + template.name}><Pencil size={15} /></button>{!template.isDefault ? <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button> : null}</div></div>)}</div>
+      <div className="template-list">{templates.map((template) => <div className={'template-row ' + (editingTemplateId === template.id ? 'editing' : '')} key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.paperSourceName ? ` · 论文 ${template.paperSourceName}` : ''}{template.slidesSourceName ? ` · PPT ${template.slidesSourceName}` : ''}{template.description ? ` · ${template.description}` : ''}</span></div><div className="template-row-actions">{template.isDefault ? <span className="default-label">内置</span> : null}<button className="icon-button" type="button" onClick={() => editTemplate(template)} title={template.isDefault ? '复制为自定义模板' : '编辑模板'} aria-label={(template.isDefault ? '复制并编辑 ' : '编辑 ') + template.name}><Pencil size={15} /></button>{!template.isDefault ? <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button> : null}</div></div>)}</div>
     </section>
   </div>;
 }

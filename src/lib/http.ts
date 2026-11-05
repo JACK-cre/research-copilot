@@ -50,7 +50,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function fetchJson<T>(
+async function fetchResponse(
   url: string | URL,
   options: {
     method?: string;
@@ -58,8 +58,9 @@ export async function fetchJson<T>(
     body?: unknown;
     timeoutMs?: number;
     retries?: number;
+    accept?: string;
   } = {},
-): Promise<T> {
+): Promise<Response> {
   const retries = options.retries ?? 1;
   const timeoutMs = options.timeoutMs ?? 10_000;
   let lastError: ExternalHttpError | undefined;
@@ -69,13 +70,14 @@ export async function fetchJson<T>(
       const response = await fetch(url, {
         method: options.method ?? 'GET',
         headers: {
-          Accept: 'application/json',
+          Accept: options.accept ?? 'application/json',
           'User-Agent': RESEARCH_USER_AGENT,
           ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...options.headers,
         },
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         cache: 'no-store',
+        redirect: 'follow',
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (response.status === 429) {
@@ -87,7 +89,7 @@ export async function fetchJson<T>(
           kind: 'http',
         });
       }
-      return await response.json() as T;
+      return response;
     } catch (error) {
       lastError = normalizeFetchError(error);
       const retryable = lastError.kind === 'timeout'
@@ -100,4 +102,36 @@ export async function fetchJson<T>(
   }
 
   throw lastError ?? new ExternalHttpError('request failed');
+}
+
+export async function fetchJson<T>(
+  url: string | URL,
+  options: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+    timeoutMs?: number;
+    retries?: number;
+  } = {},
+): Promise<T> {
+  const response = await fetchResponse(url, options);
+  return await response.json() as T;
+}
+
+export async function fetchText(
+  url: string | URL,
+  options: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+    timeoutMs?: number;
+    retries?: number;
+    accept?: string;
+  } = {},
+): Promise<string> {
+  const response = await fetchResponse(url, {
+    ...options,
+    accept: options.accept ?? 'text/html, application/xhtml+xml, application/xml;q=0.9, text/plain;q=0.8, */*;q=0.1',
+  });
+  return await response.text();
 }

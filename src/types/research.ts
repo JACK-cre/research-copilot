@@ -1,3 +1,4 @@
+import type { AgentTraceStep } from '@/lib/agents/types';
 import type {
   AiCredentialSource,
   OutputTemplateSnapshot,
@@ -7,7 +8,7 @@ import type {
 export type DeliverableType = "survey" | "proposal" | "briefing";
 export type ResearchIntent = "academic" | "book_review" | "general";
 export type ExternalSourceType = "paper" | "book" | "web";
-export type ExternalSourceProvider = "openalex" | "crossref" | "google-books" | "internet-archive" | "wikipedia" | "baidu-baike" | "wikidata" | "web-search" | "semantic-scholar" | "europe-pmc" | "demo";
+export type ExternalSourceProvider = "openalex" | "crossref" | "google-books" | "internet-archive" | "wikipedia" | "baidu-baike" | "wikidata" | "web-search" | "semantic-scholar" | "europe-pmc" | "arxiv" | "demo";
 
 export interface ResearchRequest {
   topic: string;
@@ -131,4 +132,5 @@ export interface ResearchResult {
   parentRunId?: string;
   revisionInstruction?: string;
   revisionTarget?: RevisionTarget;
+  agentTrace?: AgentTraceStep[];
 }

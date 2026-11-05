@@ -1,10 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
+import { withExponentialRetry } from '@/lib/retry';
 import { createResearchMcpServer } from '@/mcp/server';
 import type { DataScope } from '@/types/platform';
 
-export async function callResearchTool<T>(
+async function callResearchToolOnce<T>(
   name: string,
   args: Record<string, unknown> = {},
   scope?: DataScope,
@@ -28,4 +29,16 @@ export async function callResearchTool<T>(
     await client.close();
     await server.close();
   }
+}
+
+export async function callResearchTool<T>(
+  name: string,
+  args: Record<string, unknown> = {},
+  scope?: DataScope,
+): Promise<T> {
+  return withExponentialRetry(() => callResearchToolOnce<T>(name, args, scope), {
+    retries: 3,
+    baseDelayMs: 400,
+    factor: 2,
+  });
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildLocalRevision } from './local-revision';
-import { normalizeGeneratedResearchOutput } from './generated-output';
+import { normalizeGeneratedResearchOutput, normalizeStudyAction } from './generated-output';
 import type { ResearchResult } from '@/types/research';
 
 const previous = {
@@ -60,5 +60,50 @@ describe('normalizeGeneratedResearchOutput', () => {
       speakerNotes: '',
       keyPoints: ['主题'],
     });
+  });
+});
+
+
+describe('normalizeStudyAction', () => {
+  it('accepts tool and final payloads', () => {
+    expect(normalizeStudyAction({ type: 'tool', name: 'search_knowledge', arguments: { query: '长征' } })).toMatchObject({
+      type: 'tool',
+      name: 'search_knowledge',
+    });
+    expect(normalizeStudyAction({ type: 'final', content: '这是答案', citations: ['K1'] }).content).toBe('这是答案');
+  });
+});
+
+describe('normalizeGeneratedResearchOutput limits', () => {
+  it('accepts more than 16 slides instead of failing the whole generation', () => {
+    const output = normalizeGeneratedResearchOutput({
+      title: '长报告',
+      thesis: '按用户要求展开。',
+      sections: [{ title: '背景', content: '内容', citations: ['K1'] }],
+      slides: Array.from({ length: 20 }, (_, index) => ({
+        type: 'evidence',
+        title: '第 ' + (index + 1) + ' 页',
+        keyPoints: ['要点'],
+        citations: ['K1'],
+        speakerNotes: '',
+      })),
+    });
+    expect(output.slides).toHaveLength(20);
+  });
+
+  it('slices oversized slide decks instead of throwing', () => {
+    const output = normalizeGeneratedResearchOutput({
+      title: '长报告',
+      thesis: '按用户要求展开。',
+      sections: [{ title: '背景', content: '内容', citations: ['K1'] }],
+      slides: Array.from({ length: 80 }, (_, index) => ({
+        type: 'evidence',
+        title: '第 ' + (index + 1) + ' 页',
+        keyPoints: ['要点'],
+        citations: ['K1'],
+        speakerNotes: '',
+      })),
+    });
+    expect(output.slides).toHaveLength(64);
   });
 });

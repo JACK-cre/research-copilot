@@ -3,7 +3,9 @@ import { z } from 'zod';
 
 import { resolveAiRuntimeConfig } from '@/lib/ai-settings';
 import { embedTextWithConfig } from '@/lib/embeddings';
+import { searchArxiv } from '@/lib/arxiv';
 import { searchExternalSources } from '@/lib/external-search';
+import { fetchPublicPage } from '@/lib/web-fetch';
 import { fuseKnowledgeResults } from '@/lib/hybrid-search';
 import { searchOpenAlex } from '@/lib/openalex';
 import { isHostedPlatformConfigured } from '@/lib/platform-config';
@@ -110,6 +112,36 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       }
       return toolResult(await getVectorStore().listDocuments(scope));
     },
+  );
+
+
+  server.registerTool(
+    'search_arxiv',
+    {
+      title: 'Search arXiv papers',
+      description: 'Search the public arXiv preprint index.',
+      inputSchema: {
+        query: z.string().min(2),
+        yearFrom: z.number().int().min(1900).max(2100).optional(),
+        limit: z.number().int().min(1).max(20).default(8),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ query, yearFrom, limit }) =>
+      toolResult(await searchArxiv(query, { yearFrom, limit })),
+  );
+
+  server.registerTool(
+    'fetch_url',
+    {
+      title: 'Fetch public webpage',
+      description: 'Fetch a public http(s) page and extract readable text. Blocks private hosts.',
+      inputSchema: {
+        url: z.string().url(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ url }) => toolResult(await fetchPublicPage(url)),
   );
 
   return server;

@@ -1,13 +1,24 @@
 # Research Copilot
 
-一个 TypeScript 研究工作台：输入主题与要求，通过 MCP 检索论文、图书、网页和个人知识库，生成带证据引用的研究稿、来源清单以及可下载的 PPTX。
+一个 TypeScript 研究工作台：输入主题与要求，多智能体工作流通过 MCP 检索论文、图书、网页和个人知识库，生成带证据引用的研究稿、PPTX，并提供日常对话和基于知识库的复习问答。
+
+## 架构选择
+
+- **继续用 TypeScript + pgvector**，不引入 Python LangGraph，也不换成 ChromaDB。
+- 云服务器只有约 2GB 内存。再加 Python 运行时、LangGraph 服务和另一套向量库，会把 Next.js、Postgres、Caddy 挤崩。
+- 多智能体是 LangGraph 风格的状态图：规划 → 外部检索 → 知识库 → 证据组装 → 写作 → 审校（可改写一次）→ PPT。工具层仍走进程内 MCP。
+- 向量库继续用 PostgreSQL + pgvector。它已经承担账户、工作空间、研究历史和混合检索；Chroma 适合单机实验，不适合当前多用户托管。
+- GitHub 上现成的 Fetch / arXiv MCP 思路已经吸收进本仓库的 `fetch_url`、`search_arxiv`，避免再跑一串独立 Python MCP 进程。
 
 ## 当前能力
 
-- OpenAlex、Crossref、Semantic Scholar、Europe PMC 公开学术索引，外加百度百科、Wikidata、Wikipedia、网页搜索与可选 Google Books
+- 规划、检索、知识库、写作、审校、演示六个 Agent 节点协同，总览里可看到每个节点的结果
+- 对话：默认自由闲聊，只走对话模型；也可打开知识库或公开来源做复习问答。同一会话会保留完整记录；模型侧始终使用“长期摘要 + 最近 4 轮原文”
+- OpenAlex、Crossref、Semantic Scholar、Europe PMC、arXiv 公开学术索引，外加百度百科、Wikidata、Wikipedia、网页搜索与可选 Google Books
 - 知网/万方/维普没有开放检索接口，因此不抓取付费论文库；学术任务会给出知网检索入口，DOI 可继续到知网打开
 - 关键词预筛与对话模型重排，使用真实相关性分数并丢弃无关结果
-- PDF、Markdown、TXT 解析、切分与向量化
+- 论文模板支持 Word/PDF，PPT 模板支持 PPTX，可分别上传后提取版式规则并保存
+- PDF、Markdown、TXT 解析、切分与向量化，不限制单文件大小（仍受工作空间总容量约束）
 - 在知识库中展开查看文档的关键索引证据段落
 - PostgreSQL + pgvector 语义召回、关键词召回和融合排序
 - 自有邮箱密码账户、HttpOnly 数据库会话和私有工作空间
@@ -145,7 +156,11 @@ AI_KEY_ENCRYPTION_SECRET=至少32位随机字符串
 npm run mcp
 ```
 
-提供 `search_sources`、`search_papers`、`search_knowledge` 和 `list_library` 等工具。Web 研究流程通过进程内 MCP transport 使用同一套工具。
+研究流程是固定多智能体状态图，不是 LangChain ReactAgent。复习对话在开启知识库/外部资料时使用有上限的 ReAct 工具环（最多 6 轮），MCP 工具失败会指数退避重试 3 次。
+
+提供 `search_sources`、`search_papers`、`search_arxiv`、`search_knowledge`、`list_library` 和 `fetch_url`。Web 研究流程和复习对话通过进程内 MCP transport 使用同一套工具，而不是只把大模型接口包一层。
+
+配置中心可一键跳转到智谱、DeepSeek、OpenAI、Jina、硅基流动的 API Key 申请页，并说明各家 Embedding 与 pgvector 的维度要求。
 
 ## 验证
 

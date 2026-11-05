@@ -3,6 +3,7 @@ import { searchCrossref } from '@/lib/crossref';
 import { searchEuropePmc } from '@/lib/europe-pmc';
 import { searchGoogleBooks } from '@/lib/google-books';
 import { searchInternetArchive } from '@/lib/internet-archive';
+import { searchArxiv } from '@/lib/arxiv';
 import { searchOpenAlex } from '@/lib/openalex';
 import { searchSemanticScholar } from '@/lib/semantic-scholar';
 import { searchWikidata } from '@/lib/wikidata';
@@ -45,7 +46,7 @@ export function resolveAcademicYearFrom(intent: ResearchIntent, yearFrom: number
 
 export function cnkiLimitationWarning(topic: string): string {
   const encoded = encodeURIComponent(topic.trim());
-  return `知网、万方、维普和百度学术没有开放检索接口，无法直接抓取论文全文。已改用 OpenAlex、Crossref、Semantic Scholar、Europe PMC 等公开学术索引；如需知网原文可打开 https://kns.cnki.net/kns8s/defaultresult/index?kw=${encoded} 继续检索。`;
+  return `知网、万方、维普和百度学术没有开放检索接口，无法直接抓取论文全文。已改用 OpenAlex、Crossref、Semantic Scholar、Europe PMC、arXiv 等公开学术索引；如需知网原文可打开 https://kns.cnki.net/kns8s/defaultresult/index?kw=${encoded} 继续检索。`;
 }
 
 export function compactExternalWarnings(warnings: string[], papers: Paper[]): string[] {
@@ -82,6 +83,7 @@ export async function searchExternalSources(input: {
     crossref,
     europePmc,
     semanticScholar,
+    arxiv,
     books,
     archive,
     wikipedia,
@@ -96,6 +98,9 @@ export async function searchExternalSources(input: {
       : Promise.resolve(emptyResult),
     includeScholarlyIndexes
       ? searchSemanticScholar(primary, { yearFrom: academicYearFrom, limit: 12 })
+      : Promise.resolve(emptyResult),
+    includeScholarlyIndexes
+      ? searchArxiv(primary, { yearFrom: academicYearFrom, limit: 10 })
       : Promise.resolve(emptyResult),
     includeBooks ? searchGoogleBooks(primary, input.intent === 'book_review' ? 15 : 8) : Promise.resolve(emptyResult),
     includeBooks ? searchInternetArchive(primary, input.intent === 'book_review' ? 12 : 6) : Promise.resolve(emptyResult),
@@ -122,6 +127,7 @@ export async function searchExternalSources(input: {
         ...crossref.papers,
         ...semanticScholar.papers,
         ...europePmc.papers,
+        ...arxiv.papers,
         ...wikipedia.papers,
         ...baike.papers,
         ...wikidata.papers,
@@ -136,6 +142,7 @@ export async function searchExternalSources(input: {
         ...crossref.papers,
         ...semanticScholar.papers,
         ...europePmc.papers,
+        ...arxiv.papers,
         ...books.papers,
         ...archive.papers,
       ];
@@ -146,6 +153,7 @@ export async function searchExternalSources(input: {
     crossref.warning,
     europePmc.warning,
     semanticScholar.warning,
+    arxiv.warning,
     books.warning,
     archive.warning,
     wikipedia.warning,

@@ -38,7 +38,7 @@ export function buildLocalRevision(
   }
   if (target !== 'report') {
     const conclusion = output.slides.slice(-1);
-    output.slides = [...output.slides.slice(0, -1).slice(0, 9), {
+    output.slides = [...output.slides.slice(0, -1), {
       type: 'evidence',
       title: '本轮补充重点',
       keyPoints: [instruction, '围绕已有证据扩展分析方向', '新增内容保持引用可追溯'],
