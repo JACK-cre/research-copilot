@@ -5,6 +5,7 @@ import {
   extractJsonText,
   formatChatProviderError,
   isForcedThinkingChatModel,
+  isVisionChatModel,
   readChatMessageText,
 } from '@/lib/chat-client';
 
@@ -25,6 +26,11 @@ describe('chat client helpers', () => {
     expect(JSON.parse(extractJsonText('here is json\n```json\n{"a":1}\n```'))).toEqual({ a: 1 });
     expect(readChatMessageText({ content: '  ' , reasoning_content: '{"score":1}' })).toBe('{"score":1}');
     expect(readChatMessageText({ content: [{ text: '{"ok":true}' }] })).toBe('{"ok":true}');
+  });
+
+  it('recognizes glm-5.3-flash as a vision model', () => {
+    expect(isVisionChatModel('glm-5.3-flash')).toBe(true);
+    expect(isVisionChatModel('glm-5.3')).toBe(false);
   });
 
   it('redacts secrets in provider errors', () => {

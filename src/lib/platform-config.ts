@@ -68,16 +68,17 @@ export function getDailyResearchLimit(): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 20;
 }
 
+export function isResearchQuotaUnlimited(source: AiCredentialSource): boolean {
+  return source !== 'platform';
+}
+
 export function getResearchLimit(source: AiCredentialSource): number {
-  if (source === 'platform') return getDailyResearchLimit();
-  const variable = source === 'personal' ? 'DAILY_BYOK_RESEARCH_LIMIT' : 'DAILY_LOCAL_RESEARCH_LIMIT';
-  const fallback = source === 'personal' ? 100 : 50;
-  const parsed = Number(process.env[variable] ?? fallback);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  if (isResearchQuotaUnlimited(source)) return 0;
+  return getDailyResearchLimit();
 }
 
 export function getWorkspaceStorageLimitBytes(): number {
-  const parsed = Number(process.env.WORKSPACE_STORAGE_LIMIT_MB ?? 250);
-  const megabytes = Number.isFinite(parsed) && parsed > 0 ? parsed : 250;
+  const parsed = Number(process.env.WORKSPACE_STORAGE_LIMIT_MB ?? 2048);
+  const megabytes = Number.isFinite(parsed) && parsed > 0 ? parsed : 2048;
   return Math.floor(megabytes * 1024 * 1024);
 }

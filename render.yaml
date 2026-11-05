@@ -68,7 +68,7 @@ services:
       - key: DAILY_LOCAL_RESEARCH_LIMIT
         value: "50"
       - key: WORKSPACE_STORAGE_LIMIT_MB
-        value: "250"
+        value: "2048"
 
 databases:
   - name: research-copilot-db

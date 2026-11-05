@@ -2,11 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["@napi-rs/canvas", "unpdf", "pngjs"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "100mb",
+      bodySizeLimit: "200mb",
     },
-    proxyClientMaxBodySize: "100mb",
+    proxyClientMaxBodySize: "200mb",
   },
 };
 

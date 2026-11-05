@@ -10,6 +10,7 @@ function msg(role: 'user' | 'assistant', index: number): StudyMessage {
     content: `${role}-${index}`,
     citations: [],
     toolTrace: [],
+    attachments: [],
     createdAt: '2026-11-05T00:00:00.000Z',
   };
 }

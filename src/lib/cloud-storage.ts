@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -104,6 +105,17 @@ export async function uploadTemplateFile(
   return key;
 }
 
+export async function uploadStudyImage(
+  scope: DataScope,
+  conversationId: string,
+  file: { name: string; mimeType: string; bytes: Uint8Array },
+): Promise<string> {
+  const key = `${scope.workspaceId}/study/${conversationId}/${Date.now()}-${randomUUID().slice(0, 8)}-${safeName(file.name)}`;
+  assertWorkspacePath(scope, key);
+  await putObject(key, file.bytes, file.mimeType || 'application/octet-stream');
+  return key;
+}
+
 export async function uploadArtifact(
   scope: DataScope,
   runId: string,
@@ -130,6 +142,18 @@ export async function removeStoredObjects(scope: DataScope, keys: string[]): Pro
     Bucket: bucket,
     Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
   }));
+}
+
+export async function readStoredObjectBytes(scope: DataScope, key: string): Promise<Uint8Array> {
+  assertWorkspacePath(scope, key);
+  if (storageDriver() === 'local') {
+    return new Uint8Array(await readFile(localFilePath(key)));
+  }
+  const { client, bucket } = s3Config();
+  const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const bytes = await result.Body?.transformToByteArray();
+  if (!bytes) throw new Error('文件读取失败。');
+  return bytes;
 }
 
 export async function createStoredObjectDownload(

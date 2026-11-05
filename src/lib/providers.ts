@@ -11,6 +11,11 @@ export interface ModelProvider {
   vectorDbNotes: string;
 }
 
+export const DEFAULT_CHAT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4';
+export const DEFAULT_CHAT_MODEL = 'glm-5.3-flash';
+export const DEFAULT_EMBEDDING_BASE_URL = DEFAULT_CHAT_BASE_URL;
+export const DEFAULT_EMBEDDING_MODEL = 'embedding-3';
+
 export const MODEL_PROVIDERS: ModelProvider[] = [
   {
     id: 'zhipu',
@@ -19,9 +24,9 @@ export const MODEL_PROVIDERS: ModelProvider[] = [
     baseURL: 'https://open.bigmodel.cn/api/paas/v4',
     keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     docsUrl: 'https://docs.bigmodel.cn/cn/guide/start/quick-start',
-    chatModels: ['glm-5.3', 'glm-4.7-flash', 'glm-4.5-flash'],
+    chatModels: ['glm-5.3-flash', 'glm-5.3', 'glm-4.7-flash', 'glm-4.5-flash'],
     embeddingModels: ['embedding-3', 'embedding-2'],
-    embeddingNotes: '走 OpenAI 兼容 /embeddings。不要手填维度，使用接口返回的原生维度；换模型后必须重新上传知识库。',
+    embeddingNotes: '扫描版或带图 PDF 请用 glm-5.3-flash 看图分析后再入库。Embedding 走 OpenAI 兼容 /embeddings，单次最多 64 条，长文档会自动分批。不要手填维度；换模型后必须重新上传知识库。',
     vectorDbNotes: 'pgvector 按返回向量长度存储。embedding-3 常见 2048 维，embedding-2 常见 1024 维。同一知识库不要混用模型。',
   },
   {

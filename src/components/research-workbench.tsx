@@ -32,7 +32,7 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { isZhipuBaseUrl } from '@/lib/embedding-dimensions';
-import { MODEL_PROVIDERS, embeddingRequirement, matchProvider } from '@/lib/providers';
+import { DEFAULT_CHAT_BASE_URL, DEFAULT_CHAT_MODEL, DEFAULT_EMBEDDING_BASE_URL, DEFAULT_EMBEDDING_MODEL, MODEL_PROVIDERS, embeddingRequirement, matchProvider } from '@/lib/providers';
 import { DEFAULT_RESEARCH_LAYOUT, LAYOUT_LIMITS, ResizeHandle, useResearchLayout } from '@/components/resize-handle';
 import { StudyChat } from '@/components/study-chat';
 import type {
@@ -749,7 +749,7 @@ function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onEr
       <section className="upload-zone" onClick={() => fileInput.current?.click()}>
         {uploading ? <LoaderCircle className="spin" size={28} /> : <Upload size={28} />}
         <h2>{uploading ? '正在解析与向量化' : '添加研究资料'}</h2>
-        <p>PDF、Markdown、TXT，按文件解析，不限制单文件大小</p>
+        <p>PDF、Markdown、TXT。扫描版或带图 PDF 会用对话模型看图并写入分析（推荐 glm-5.3-flash），单次上传约 200MB</p>
       </section>
       <section className="library-table-section">
         <div className="section-title"><h3>已索引资料</h3><span>{documents.length} 份文档</span></div>
@@ -782,11 +782,11 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
 }) {
   const [ai, setAi] = useState<AiSettingsSummary | null>(null);
   const [apiKey, setApiKey] = useState('');
-  const [baseURL, setBaseURL] = useState('https://api.openai.com/v1');
-  const [chatModel, setChatModel] = useState('gpt-4.1-mini');
+  const [baseURL, setBaseURL] = useState(DEFAULT_CHAT_BASE_URL);
+  const [chatModel, setChatModel] = useState(DEFAULT_CHAT_MODEL);
   const [embeddingApiKey, setEmbeddingApiKey] = useState('');
-  const [embeddingBaseURL, setEmbeddingBaseURL] = useState('https://api.jina.ai/v1');
-  const [embeddingModel, setEmbeddingModel] = useState('local-hash-v1');
+  const [embeddingBaseURL, setEmbeddingBaseURL] = useState(DEFAULT_EMBEDDING_BASE_URL);
+  const [embeddingModel, setEmbeddingModel] = useState(DEFAULT_EMBEDDING_MODEL);
   const [savingAi, setSavingAi] = useState(false);
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -1006,15 +1006,15 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   const customTemplates = templates.filter((template) => !template.isDefault);
   return <div className="settings-layout">
     <section className="settings-section">
-      <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
+      <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai && ai.dailyLimit > 0 ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
       <p className="settings-description">对话模型负责检索重排、论文、PPT、复习对话和模板识别；Embedding 服务负责知识库中文语义检索。两者可以使用不同服务商，密钥分别加密保存。</p>
       <div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'embedding').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(baseURL)?.id === provider.id ? ' active' : '')} key={provider.id} onClick={() => { setBaseURL(provider.baseURL); if (provider.chatModels[0]) setChatModel(provider.chatModels[0]); if (provider.kind === 'both' && embeddingModel !== 'local-hash-v1') { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); } }}>{provider.name}</button>)}</div>
       <p className="provider-links">{matchProvider(baseURL) ? <><a href={matchProvider(baseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(baseURL)!.name} API Key</a>{matchProvider(baseURL)!.docsUrl ? <> · <a href={matchProvider(baseURL)!.docsUrl} target="_blank" rel="noreferrer">接口说明</a></> : null}</> : <span>填写任意 OpenAI 兼容地址。常用入口：{MODEL_PROVIDERS.map((provider) => <a href={provider.keyUrl} target="_blank" rel="noreferrer" key={provider.id}>{provider.name}</a>)}</span>}</p>
       <form className="settings-form" onSubmit={saveAi}>
         <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已加密保存，留空不会修改' : '填写服务商提供的 API Key'} /><small>仅加密保存在你的账户下，不会显示给其他用户。</small></label>
-        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://api.openai.com/v1" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 对话接口；下方可独立配置中文 Embedding。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
+        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://open.bigmodel.cn/api/paas/v4" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 对话接口；下方可独立配置中文 Embedding。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
         <div className="settings-grid">
-          <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="gpt-4.1-mini" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
+          <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="glm-5.3-flash" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
           <div className="embedding-setting"><span>知识库检索模式</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>中文语义（推荐）</button><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>无向量服务</button></div>{embeddingModel === 'local-hash-v1' ? <small>仅使用严格关键词检索；哈希向量不会单独进入证据池，准确性优先但召回较少。</small> : <small>使用独立 Embedding 接口生成中文语义向量，维度按模型实际返回值存储，换模型后请重新上传资料。</small>}</div>
         </div>
         {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'chat').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(embeddingBaseURL)?.id === provider.id ? ' active' : '')} key={'emb-' + provider.id} onClick={() => { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); }}>{provider.name}</button>)}</div><p className="provider-links">{matchProvider(embeddingBaseURL) ? <a href={matchProvider(embeddingBaseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(embeddingBaseURL)!.name} Embedding Key</a> : null}</p><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>{embeddingRequirement(embeddingBaseURL, embeddingModel)}</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}

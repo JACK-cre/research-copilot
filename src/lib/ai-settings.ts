@@ -10,6 +10,12 @@ import {
   getPlatformAiRuntimeConfig,
   getResearchLimit,
 } from '@/lib/platform-config';
+import {
+  DEFAULT_CHAT_BASE_URL,
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_EMBEDDING_BASE_URL,
+  DEFAULT_EMBEDDING_MODEL,
+} from '@/lib/providers';
 import { decryptSecret, encryptSecret } from '@/lib/secret-crypto';
 import type { AiRuntimeConfig, AiSettingsSummary, DataScope } from '@/types/platform';
 
@@ -121,14 +127,15 @@ export async function getAiSettingsSummary(scope: DataScope): Promise<AiSettings
   const stored = await readStoredSettings(scope);
   const active = await resolveAiRuntimeConfig(scope);
   const fallback = stored ?? {
-    base_url: active.baseURL,
-    chat_model: active.chatModel,
+    base_url: DEFAULT_CHAT_BASE_URL,
+    chat_model: DEFAULT_CHAT_MODEL,
     encrypted_embedding_api_key: null,
-    embedding_base_url: active.embeddingBaseURL,
-    embedding_model: active.embeddingModel,
+    embedding_base_url: DEFAULT_EMBEDDING_BASE_URL,
+    embedding_model: DEFAULT_EMBEDDING_MODEL,
     embedding_dimensions: active.embeddingDimensions,
   };
-  const usage = scope.mode === 'cloud'
+  const limit = getResearchLimit(active.source);
+  const usage = scope.mode === 'cloud' && limit > 0
     ? await getDatabasePool().query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM research_runs
        WHERE created_by = $1 AND ai_source = $2 AND created_at >= date_trunc('day', now())`,
@@ -148,7 +155,7 @@ export async function getAiSettingsSummary(scope: DataScope): Promise<AiSettings
     embeddingBaseURL: fallback.embedding_base_url || fallback.base_url,
     embeddingModel: fallback.embedding_model,
     embeddingDimensions: fallback.embedding_dimensions,
-    dailyLimit: getResearchLimit(active.source),
+    dailyLimit: limit,
     usedToday: Number(usage?.rows[0]?.count ?? 0),
   };
 }

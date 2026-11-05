@@ -19,7 +19,11 @@ export function splitConversationMemory(
 
 export function formatMemoryTranscript(messages: StudyMessage[]): string {
   return messages
-    .map((item) => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
+    .map((item) => {
+      const names = (item.attachments ?? []).map((file) => file.name).filter(Boolean);
+      const suffix = names.length ? ` [图片：${names.join('、')}]` : '';
+      return `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}${suffix}`;
+    })
     .join('\n');
 }
 

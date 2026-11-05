@@ -36,6 +36,15 @@ export function isForcedThinkingChatModel(model: string): boolean {
   return /glm-5\.3/i.test(model.trim());
 }
 
+export function isVisionChatModel(model: string): boolean {
+  const name = model.trim().toLowerCase();
+  if (!name) return false;
+  if (/deepseek|reasoner/.test(name)) return false;
+  if (/^glm-5\.3$/.test(name)) return false;
+  if (/^glm-4\.[0-9]+-flash$/.test(name)) return false;
+  return /glm-5\.3-flash|glm-4\.6v|glm-4v|gpt-4o|gpt-4\.1|qwen[-.]?vl|qwen2\.5-vl|qwen3-vl|gemini/.test(name);
+}
+
 export function buildChatRequestExtras(model: string, _baseURL = ''): Record<string, unknown> {
   if (!isForcedThinkingChatModel(model)) return {};
   return {
@@ -202,3 +211,65 @@ export async function createChatTextCompletion(input: ChatTextRequest): Promise<
   }
 }
 
+export interface ChatVisionRequest {
+  ai: ChatAiConfig;
+  system: string;
+  prompt: string;
+  images: string[];
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  maxTokens?: number;
+  timeoutMs?: number;
+}
+
+export async function createChatVisionCompletion(input: ChatVisionRequest): Promise<string> {
+  if (!input.ai.apiKey) throw new Error('未配置对话模型 API Key。');
+  if (!input.images.length) throw new Error('没有可识别的图片。');
+  if (!isVisionChatModel(input.ai.chatModel)) {
+    throw new Error('当前对话模型不支持识图。请改用 glm-5.3-flash（智谱原生多模态）。');
+  }
+
+  const client = new OpenAI({
+    apiKey: input.ai.apiKey,
+    baseURL: input.ai.baseURL,
+    timeout: input.timeoutMs ?? 180_000,
+  });
+  const extras = buildChatRequestExtras(input.ai.chatModel, input.ai.baseURL);
+  const maxTokens = input.maxTokens
+    ?? (isForcedThinkingChatModel(input.ai.chatModel) ? 8_192 : 4_096);
+
+  try {
+    const completion = await client.chat.completions.create({
+      model: input.ai.chatModel,
+      messages: [
+        { role: 'system', content: input.system },
+        ...(input.history ?? []).map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        {
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: input.prompt },
+            ...input.images.map((url) => ({
+              type: 'image_url' as const,
+              image_url: { url },
+            })),
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: maxTokens,
+      ...extras,
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+    const choice = completion.choices[0];
+    const text = readChatMessageText(choice?.message as ChatMessageLike | undefined);
+    if (!text) {
+      throw new Error(choice?.finish_reason === 'length'
+        ? '识图输出被截断，请减少图片数量或改发更小的图。'
+        : '识图模型返回了空内容。');
+    }
+    return text;
+  } catch (error) {
+    throw new Error(formatChatProviderError(error));
+  }
+}

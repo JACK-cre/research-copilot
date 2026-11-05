@@ -14,6 +14,7 @@ import type {
   StudyConversationDetail,
   StudyConversationSummary,
   StudyMessage,
+  StudyMessageAttachment,
 } from '@/types/platform';
 import type { ResearchRequest, ResearchResult } from '@/types/research';
 
@@ -43,7 +44,7 @@ export async function createResearchRun(
       [scope.userId, options.aiSource],
     );
     const limit = getResearchLimit(options.aiSource);
-    if (Number(usage.rows[0]?.count ?? 0) >= limit) {
+    if (limit > 0 && Number(usage.rows[0]?.count ?? 0) >= limit) {
       const label = options.aiSource === 'platform' ? '平台模型' : options.aiSource === 'personal' ? '个人 Key' : '本地模式';
       throw new Error(`今天的${label}任务额度已用完（${limit} 次）。`);
     }
@@ -209,6 +210,11 @@ export async function getWorkspaceStorageUsage(scope: DataScope): Promise<number
        SELECT size_bytes FROM documents WHERE workspace_id = $1
        UNION ALL
        SELECT size_bytes FROM artifacts WHERE workspace_id = $1
+       UNION ALL
+       SELECT COALESCE((att->>'size')::bigint, 0) AS size_bytes
+       FROM study_messages m
+       CROSS JOIN LATERAL jsonb_array_elements(COALESCE(m.attachments, '[]'::jsonb)) att
+       WHERE m.workspace_id = $1
      ) stored_files`,
     [scope.workspaceId],
   );
@@ -289,6 +295,25 @@ export async function getArtifactStorageRecord(
 }
 
 
+
+function mapStudyAttachments(value: unknown): StudyMessageAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const id = String(row.id ?? '').trim();
+    const storagePath = String(row.storagePath ?? row.storage_path ?? '').trim();
+    if (!id || !storagePath) return [];
+    return [{
+      id,
+      name: String(row.name ?? '').trim() || 'image',
+      mimeType: String(row.mimeType ?? row.mime_type ?? '').trim() || 'application/octet-stream',
+      storagePath,
+      size: Number(row.size ?? 0) || 0,
+    }];
+  });
+}
+
 type MemoryStudyConversation = {
   title: string;
   updatedAt: string;
@@ -350,9 +375,10 @@ export async function getStudyMessages(scope: DataScope, conversationId: string)
     content: string;
     citations: StudyMessage['citations'];
     tool_trace: StudyMessage['toolTrace'];
+    attachments: unknown;
     created_at: Date;
   }>(
-    `SELECT id, role, content, citations, tool_trace, created_at
+    `SELECT id, role, content, citations, tool_trace, attachments, created_at
      FROM study_messages
      WHERE workspace_id = $1 AND conversation_id = $2
      ORDER BY created_at ASC`,
@@ -364,6 +390,7 @@ export async function getStudyMessages(scope: DataScope, conversationId: string)
     content: row.content,
     citations: row.citations ?? [],
     toolTrace: row.tool_trace ?? [],
+    attachments: mapStudyAttachments(row.attachments),
     createdAt: row.created_at.toISOString(),
   }));
 }
@@ -452,6 +479,7 @@ export async function appendStudyTurn(
   input: {
     conversationId?: string;
     userMessage: string;
+    attachments?: StudyMessageAttachment[];
     assistant: Pick<StudyMessage, 'content' | 'citations' | 'toolTrace'>;
   },
 ): Promise<{ conversationId: string; messages: StudyMessage[] }> {
@@ -462,6 +490,7 @@ export async function appendStudyTurn(
     content: input.userMessage,
     citations: [],
     toolTrace: [],
+    attachments: input.attachments ?? [],
     createdAt: now,
   };
   const assistant: StudyMessage = {
@@ -470,6 +499,7 @@ export async function appendStudyTurn(
     content: input.assistant.content,
     citations: input.assistant.citations,
     toolTrace: input.assistant.toolTrace,
+    attachments: [],
     createdAt: new Date().toISOString(),
   };
 
@@ -503,9 +533,9 @@ export async function appendStudyTurn(
     );
   }
   await pool.query(
-    `INSERT INTO study_messages (id, conversation_id, workspace_id, role, content, citations, tool_trace)
-     VALUES ($1, $2, $3, 'user', $4, '[]'::jsonb, '[]'::jsonb),
-            ($5, $2, $3, 'assistant', $6, $7::jsonb, $8::jsonb)`,
+    `INSERT INTO study_messages (id, conversation_id, workspace_id, role, content, citations, tool_trace, attachments)
+     VALUES ($1, $2, $3, 'user', $4, '[]'::jsonb, '[]'::jsonb, $9::jsonb),
+            ($5, $2, $3, 'assistant', $6, $7::jsonb, $8::jsonb, '[]'::jsonb)`,
     [
       user.id,
       conversationId,
@@ -515,6 +545,7 @@ export async function appendStudyTurn(
       assistant.content,
       JSON.stringify(assistant.citations),
       JSON.stringify(assistant.toolTrace),
+      JSON.stringify(user.attachments),
     ],
   );
   await pool.query(

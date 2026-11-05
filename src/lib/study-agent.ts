@@ -1,7 +1,8 @@
-import { createChatJsonCompletion, createChatTextCompletion } from '@/lib/chat-client';
+import { createChatJsonCompletion, createChatTextCompletion, createChatVisionCompletion, isVisionChatModel } from '@/lib/chat-client';
 import { buildChatMemoryPreamble, formatMemoryTranscript, splitConversationMemory } from '@/lib/conversation-memory';
 import { normalizeStudyAction } from '@/lib/generated-output';
 import { callResearchTool } from '@/mcp/client';
+import { studyAttachmentLabel } from '@/lib/study-images';
 import { excerpt } from '@/lib/text';
 import type { AiRuntimeConfig, DataScope, StudyCitation, StudyMessage, StudyToolTrace } from '@/types/platform';
 import type { Paper, ResearchIntent } from '@/types/research';
@@ -89,6 +90,37 @@ async function runStudyTool(
   throw new Error(`未知工具：${name}`);
 }
 
+
+export type StudyTurnImage = {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+};
+
+const VISION_REQUIRED_ERROR = '当前对话模型不支持识图。请在配置中心把对话模型改成 glm-5.3-flash（智谱原生多模态）后再发送图片。';
+
+function formatHistoryContent(item: StudyMessage): string {
+  const label = studyAttachmentLabel((item.attachments ?? []).map((file) => file.name));
+  if (!label) return item.content;
+  return item.content.trim() ? `${item.content}\n${label}` : label;
+}
+
+async function describeStudyImages(input: {
+  ai: AiRuntimeConfig;
+  message: string;
+  images: StudyTurnImage[];
+}): Promise<string> {
+  const names = studyAttachmentLabel(input.images.map((image) => image.name));
+  const description = await createChatVisionCompletion({
+    ai: input.ai,
+    system: '你是看图助手。用中文描述图片中的可见内容、文字和关键细节，不要编造看不见的信息，也不要回答用户的其他问题。',
+    prompt: input.message.trim() || '请描述这些图片。',
+    images: input.images.map((image) => image.dataUrl),
+    timeoutMs: 120_000,
+  });
+  return [names, `识图结果：\n${description.trim()}`].filter(Boolean).join('\n');
+}
+
 export function isFreeChatMode(input: { useLibrary: boolean; useWeb: boolean }): boolean {
   return !input.useLibrary && !input.useWeb;
 }
@@ -98,21 +130,40 @@ async function runFreeChatTurn(input: {
   history: StudyMessage[];
   message: string;
   memorySummary?: string;
+  images?: StudyTurnImage[];
 }): Promise<{ content: string; citations: StudyCitation[]; toolTrace: StudyToolTrace[] }> {
   const { recent } = splitConversationMemory(input.history);
   const preamble = buildChatMemoryPreamble(input.memorySummary ?? '');
+  const system = [
+    '你是 Research Copilot 的日常对话助手。',
+    '用自然、简洁的中文回答，除非用户要求其他语言。',
+    '不要检索知识库或互联网，也不要假装查过资料。',
+    '不要编造参考文献、链接、论文编号或数据。',
+    '可以闲聊、解释概念、改写句子、给学习建议；不确定就直说。',
+    '如果用户发了图片，根据可见内容回答；看不清就直说。',
+    preamble,
+  ].filter(Boolean).join('\n');
+  const history = recent.map((item) => ({ role: item.role, content: formatHistoryContent(item) }));
+  const images = input.images ?? [];
+  if (images.length) {
+    if (!isVisionChatModel(input.ai.chatModel)) {
+      throw new Error(VISION_REQUIRED_ERROR);
+    }
+    const content = await createChatVisionCompletion({
+      ai: input.ai,
+      system,
+      history,
+      prompt: input.message,
+      images: images.map((image) => image.dataUrl),
+      timeoutMs: 120_000,
+    });
+    return { content, citations: [], toolTrace: [] };
+  }
   const content = await createChatTextCompletion({
     ai: input.ai,
-    system: [
-      '你是 Research Copilot 的日常对话助手。',
-      '用自然、简洁的中文回答，除非用户要求其他语言。',
-      '不要检索知识库或互联网，也不要假装查过资料。',
-      '不要编造参考文献、链接、论文编号或数据。',
-      '可以闲聊、解释概念、改写句子、给学习建议；不确定就直说。',
-      preamble,
-    ].filter(Boolean).join('\n'),
+    system,
     messages: [
-      ...recent.map((item) => ({ role: item.role, content: item.content })),
+      ...history,
       { role: 'user' as const, content: input.message },
     ],
     temperature: 0.7,
@@ -128,6 +179,7 @@ export async function runStudyTurn(input: {
   useLibrary: boolean;
   useWeb: boolean;
   memorySummary?: string;
+  images?: StudyTurnImage[];
 }): Promise<{ content: string; citations: StudyCitation[]; toolTrace: StudyToolTrace[] }> {
   if (!input.ai.apiKey) {
     throw new Error('请先在配置中心填写对话模型 API Key，才能使用对话。');
@@ -141,10 +193,32 @@ export async function runStudyTurn(input: {
   const citations: StudyCitation[] = [];
   const { recent } = splitConversationMemory(input.history);
   const preamble = buildChatMemoryPreamble(input.memorySummary ?? '');
+  const images = input.images ?? [];
+  let imageNotes = '';
+  if (images.length) {
+    if (isVisionChatModel(input.ai.chatModel)) {
+      try {
+        imageNotes = await describeStudyImages({
+          ai: input.ai,
+          message: input.message,
+          images,
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : '识图失败';
+        if (!input.message.trim()) throw error instanceof Error ? error : new Error(detail);
+        imageNotes = `${studyAttachmentLabel(images.map((image) => image.name))}。识图失败：${detail}`;
+      }
+    } else if (!input.message.trim()) {
+      throw new Error(VISION_REQUIRED_ERROR);
+    } else {
+      imageNotes = `${studyAttachmentLabel(images.map((image) => image.name))}。当前模型不支持识图，请结合文字要求作答，不要假装看过图片。`;
+    }
+  }
   const transcript = [
     preamble,
     formatMemoryTranscript(recent),
     `User: ${input.message}`,
+    imageNotes,
   ].filter(Boolean).join('\n');
 
   let observations = '';
@@ -158,6 +232,7 @@ export async function runStudyTurn(input: {
         'Write the final answer in Chinese unless the user asks otherwise.',
         input.useLibrary ? 'Knowledge base tools are allowed.' : 'Do not call search_knowledge or list_library.',
         input.useWeb ? 'External tools are allowed.' : 'Do not call search_sources, search_arxiv, or fetch_url.',
+        images.length ? 'The user sent images. Use the 识图结果; do not invent visual details that were not described.' : '',
       ].join(' '),
       user: [
         'Available tools: list_library, search_knowledge, search_sources, search_arxiv, fetch_url.',

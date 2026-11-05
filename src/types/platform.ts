@@ -96,12 +96,21 @@ export interface StudyCitation {
   url?: string;
 }
 
+export interface StudyMessageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  storagePath: string;
+  size: number;
+}
+
 export interface StudyMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   citations: StudyCitation[];
   toolTrace: StudyToolTrace[];
+  attachments: StudyMessageAttachment[];
   createdAt: string;
 }
 
