@@ -1,0 +1,66 @@
+name: Build production image
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.image.outputs.name }}:latest
+          cache-from: type=gha
+          provenance: false
+
+      - name: Push GHCR tags
+        continue-on-error: true
+        run: |
+          docker tag "${{ steps.image.outputs.name }}:latest" "${{ steps.image.outputs.name }}:${{ github.sha }}"
+          docker push "${{ steps.image.outputs.name }}:latest"
+          docker push "${{ steps.image.outputs.name }}:${{ github.sha }}"
+
+      - name: Save gzipped image
+        run: |
+          docker save "${{ steps.image.outputs.name }}:latest" | gzip -1 > research-copilot.tar.gz
+          ls -lh research-copilot.tar.gz
+
+      - name: Publish downloadable image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="Prebuilt linux/amd64 image from ${GITHUB_SHA}"
+          if gh release view image-latest >/dev/null 2>&1; then
+            gh release upload image-latest research-copilot.tar.gz --clobber
+            gh release edit image-latest --notes "$notes"
+          else
+            gh release create image-latest research-copilot.tar.gz --title "Production image" --notes "$notes"
+          fi

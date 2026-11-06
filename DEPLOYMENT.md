@@ -231,14 +231,38 @@ docker compose -f deploy/compose.production.yml --env-file .env.production \
 
 ## 十一、更新和回滚
 
-更新：
+2 GB 轻量服务器不要在机器上执行 `next build` / `docker compose up --build`。GitHub Actions 会在推送到 `main` 后编译 `linux/amd64` 镜像，并发布到 Release `image-latest`。服务器只下载镜像并替换 `app` 容器，通常 1～3 分钟。
+
+首次启用：
+
+1. 打开仓库 Actions，确认 `Build production image` 成功。
+2. 打开 https://github.com/JACK-cre/research-copilot/releases/tag/image-latest ，能看到 `research-copilot.tar.gz`。
+3. 若使用 GHCR 拉取，把 Package `research-copilot` 设为 Public。国内服务器优先走下面的下载脚本，不必登录 GHCR。
+
+日常更新：
 
 ```bash
-git pull --ff-only
-docker compose -f deploy/compose.production.yml --env-file .env.production up --build -d
+cd /opt/apps/research-copilot
+bash deploy/update.sh
 ```
 
-发布前记录当前 Git 提交。需要回滚时切换到上一个已验证提交并重新构建。数据库迁移默认只向前执行，因此破坏性数据库变更需要单独设计回滚脚本。
+脚本会 `git pull` 部署文件，下载预编译镜像，`docker load`，然后只重启 `app`。Postgres 和 Caddy 保持运行。不要执行 `docker compose down`。
+
+检查：
+
+```bash
+docker compose -f deploy/compose.production.yml --env-file .env.production ps
+curl -fsS http://127.0.0.1/api/health
+```
+
+应急才在服务器上构建（2 GB 机器可能要 20 分钟以上，也可能因 swap 卡住）：
+
+```bash
+docker compose -f deploy/compose.production.yml --env-file .env.production build --pull never app
+docker compose -f deploy/compose.production.yml --env-file .env.production up -d --no-deps --pull never app
+```
+
+发布前记录当前 Git 提交。回滚时下载上一版镜像或切换到上一个已验证提交后重新发布 Actions。数据库迁移默认只向前执行，因此破坏性数据库变更需要单独设计回滚脚本。
 
 ## 十二、压测
 

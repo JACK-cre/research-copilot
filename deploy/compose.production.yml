@@ -1,5 +1,7 @@
 services:
   app:
+    image: ${APP_IMAGE:-ghcr.io/jack-cre/research-copilot:latest}
+    pull_policy: ${APP_PULL_POLICY:-never}
     build:
       context: ..
       dockerfile: Dockerfile

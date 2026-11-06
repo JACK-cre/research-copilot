@@ -55,7 +55,7 @@ docker compose up --build -d
 
 ## 部署给其他人使用
 
-生产部署文件位于 `deploy/`：
+生产部署文件位于 `deploy/`。2 GB 云服务器请用 GitHub Actions 预编译镜像 + `bash deploy/update.sh`，不要在服务器上 `up --build`。
 
 - Caddy 自动申请和续期 HTTPS 证书
 - Next.js Node 22 容器
