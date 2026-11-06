@@ -82,19 +82,62 @@ export function canUsePdfOcr(ai: Pick<AiRuntimeConfig, 'apiKey' | 'chatModel'>):
   return Boolean(ai.apiKey) && isVisionChatModel(ai.chatModel);
 }
 
-export async function extractPdfText(bytes: Uint8Array, ai: AiRuntimeConfig): Promise<string> {
-  const parsed = await extractText(bytes, { mergePages: false });
-  const pageTexts = parsed.text.map((page) => normalizeWhitespace(page));
-  const pdf = await getDocumentProxy(bytes);
-  const limit = ocrPageLimit(parsed.totalPages);
-  const pages: string[] = [];
-  let ocrUsed = 0;
-  let skippedOcr = 0;
+export function copyPdfBytes(bytes: Uint8Array): Uint8Array {
+  return bytes.slice();
+}
 
+export function isPdfTransferError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : '';
+  return /Cannot transfer object of unsupported type|DataCloneError|could not be cloned|detached ArrayBuffer|InvalidStateError/i.test(`${name} ${message}`);
+}
+
+async function destroyPdfDocument(pdf?: { destroy?: () => Promise<void> }): Promise<void> {
+  if (typeof pdf?.destroy === 'function') await pdf.destroy().catch(() => undefined);
+}
+
+function joinDigitalPages(pageTexts: string[]): string {
+  return pageTexts
+    .map((page, index) => {
+      const digital = normalizeWhitespace(page);
+      return digital ? `## 第 ${index + 1} 页\n${digital}` : '';
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function finalizeExtractedText(text: string, skippedOcr: number, ai: AiRuntimeConfig): string {
+  let combined = text;
+  if (skippedOcr) {
+    combined += `\n\n（有 ${skippedOcr} 页图片未分析：已达本次看图上限或当前模型不支持识图。文字页已保留。）`;
+  }
+  if (normalizeWhitespace(combined).length < MIN_PAGE_TEXT_CHARS) {
+    if (!canUsePdfOcr(ai)) {
+      throw new Error('这是扫描版或图文混排 PDF，需要对话模型识图。请先在配置中心填写对话 API Key，并使用 glm-5.3-flash。');
+    }
+    throw new Error('没有从文件中提取到足够的文本。扫描页请改用更清晰的版本，或拆分后再上传。');
+  }
+  return combined;
+}
+
+export async function extractPdfText(bytes: Uint8Array, ai: AiRuntimeConfig): Promise<string> {
+  // PDF.js fake-worker transfers the input ArrayBuffer. Reusing the same
+  // Uint8Array for extractText + getDocumentProxy throws:
+  // "Cannot transfer object of unsupported type".
+  let pdf: Awaited<ReturnType<typeof getDocumentProxy>> | undefined;
   try {
+    pdf = await getDocumentProxy(copyPdfBytes(bytes));
+    const parsed = await extractText(pdf, { mergePages: false });
+    const pageTexts = parsed.text.map((page) => normalizeWhitespace(page));
+    const limit = ocrPageLimit(parsed.totalPages);
+    const pages: string[] = [];
+    let ocrUsed = 0;
+    let skippedOcr = 0;
+
     for (let page = 1; page <= parsed.totalPages; page += 1) {
       const digital = pageTexts[page - 1] ?? '';
-      const images = await extractImages(pdf, page).catch(() => []);
+      const inspectImages = normalizeWhitespace(digital).length < MIN_DIGITAL_PAGE_CHARS || ocrUsed < limit;
+      const images = inspectImages ? await extractImages(pdf, page).catch(() => []) : [];
       const largeImages = images.filter(isSignificantImage);
       const kind = classifyPdfPage(digital, largeImages.length);
 
@@ -119,22 +162,15 @@ export async function extractPdfText(bytes: Uint8Array, ai: AiRuntimeConfig): Pr
       const combined = mergePageText(digital, visual);
       if (combined) pages.push(`## 第 ${page} 页\n${combined}`);
     }
-  } finally {
-    const destroy = (pdf as { destroy?: () => Promise<void> }).destroy;
-    if (typeof destroy === 'function') await destroy.call(pdf).catch(() => undefined);
-  }
 
-  let combined = pages.join('\n\n');
-  if (skippedOcr) {
-    combined += `\n\n（有 ${skippedOcr} 页图片未分析：已达本次看图上限或当前模型不支持识图。文字页已保留。）`;
+    return finalizeExtractedText(pages.join('\n\n'), skippedOcr, ai);
+  } catch (error) {
+    if (!isPdfTransferError(error)) throw error;
+    const parsed = await extractText(copyPdfBytes(bytes), { mergePages: false });
+    return finalizeExtractedText(joinDigitalPages(parsed.text), 0, ai);
+  } finally {
+    await destroyPdfDocument(pdf);
   }
-  if (normalizeWhitespace(combined).length < MIN_PAGE_TEXT_CHARS) {
-    if (!canUsePdfOcr(ai)) {
-      throw new Error('这是扫描版或图文混排 PDF，需要对话模型识图。请先在配置中心填写对话 API Key，并使用 glm-5.3-flash。');
-    }
-    throw new Error('没有从文件中提取到足够的文本。扫描页请改用更清晰的版本，或拆分后再上传。');
-  }
-  return combined;
 }
 
 async function ocrPageContent(input: {

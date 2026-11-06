@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { isVisionChatModel } from '@/lib/chat-client';
 import {
   classifyPdfPage,
+  copyPdfBytes,
   extractedImageToPngDataUrl,
+  isPdfTransferError,
   mergePageText,
   needsPdfOcr,
   ocrPageLimit,
@@ -62,5 +64,18 @@ describe('pdf ocr helpers', () => {
     });
     expect(dataUrl.startsWith('data:image/png;base64,')).toBe(true);
     expect(dataUrl.length).toBeGreaterThan(40);
+  });
+
+  it('copies pdf bytes so pdf.js transfer cannot empty the original buffer', () => {
+    const original = new Uint8Array([37, 80, 68, 70]);
+    const copy = copyPdfBytes(original);
+    structuredClone(copy.buffer, { transfer: [copy.buffer] });
+    expect(copy.byteLength).toBe(0);
+    expect(Array.from(original)).toEqual([37, 80, 68, 70]);
+  });
+
+  it('recognizes the pdf.js worker transfer error', () => {
+    expect(isPdfTransferError(new DOMException('Cannot transfer object of unsupported type'))).toBe(true);
+    expect(isPdfTransferError(new Error('Embedding 服务调用失败'))).toBe(false);
   });
 });

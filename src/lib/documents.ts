@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { embedTexts } from '@/lib/embeddings';
-import { extractPdfText } from '@/lib/pdf-ocr';
+import { extractPdfText, isPdfTransferError } from '@/lib/pdf-ocr';
 import { getPlatformAiRuntimeConfig } from '@/lib/platform-config';
 import { chunkText, normalizeWhitespace } from '@/lib/text';
 import type { AiRuntimeConfig } from '@/types/platform';
@@ -40,7 +40,15 @@ export async function parseUpload(
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const text = normalizeWhitespace(await parseFileText(file, bytes, ai));
+  let text: string;
+  try {
+    text = normalizeWhitespace(await parseFileText(file, bytes.slice(), ai));
+  } catch (error) {
+    if (isPdfTransferError(error)) {
+      throw new Error('这份 PDF 解析失败，请重试一次。如果仍失败，可先导出为文字版 PDF 再上传。');
+    }
+    throw error;
+  }
   if (text.length < 40) throw new Error('没有从文件中提取到足够的文本。');
 
   const parts = chunkText(text);
