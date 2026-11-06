@@ -92,8 +92,10 @@ export function isPdfTransferError(error: unknown): boolean {
   return /Cannot transfer object of unsupported type|DataCloneError|could not be cloned|detached ArrayBuffer|InvalidStateError/i.test(`${name} ${message}`);
 }
 
-async function destroyPdfDocument(pdf?: { destroy?: () => Promise<void> }): Promise<void> {
-  if (typeof pdf?.destroy === 'function') await pdf.destroy().catch(() => undefined);
+async function destroyPdfDocument(pdf?: unknown): Promise<void> {
+  if (!pdf || typeof pdf !== 'object') return;
+  const destroy = (pdf as { destroy?: () => Promise<void> }).destroy;
+  if (typeof destroy === 'function') await destroy.call(pdf).catch(() => undefined);
 }
 
 function joinDigitalPages(pageTexts: string[]): string {
