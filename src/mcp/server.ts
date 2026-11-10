@@ -7,6 +7,7 @@ import { searchArxiv } from '@/lib/arxiv';
 import { searchExternalSources } from '@/lib/external-search';
 import { fetchPublicPage } from '@/lib/web-fetch';
 import { fuseKnowledgeResults } from '@/lib/hybrid-search';
+import { knowledgeRecallLimit, rerankKnowledgeResults } from '@/lib/knowledge-rerank';
 import { searchOpenAlex } from '@/lib/openalex';
 import { isHostedPlatformConfigured } from '@/lib/platform-config';
 import { getVectorStore } from '@/lib/vector-store';
@@ -77,24 +78,31 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       }
       const ai = await resolveAiRuntimeConfig(scope);
       const store = getVectorStore();
+      const recall = knowledgeRecallLimit(limit);
       const semanticPromise = embedTextWithConfig(query, ai)
-        .then((queryVector) => store.search(queryVector, limit * 3, scope, {
+        .then((queryVector) => store.search(queryVector, recall.retrievalLimit, scope, {
           model: ai.embeddingIdentity,
           dimensions: queryVector.length,
         }));
       const [semanticResult, keywordResult] = await Promise.allSettled([
         semanticPromise,
-        store.lexicalSearch(keywordQuery ?? query, limit * 3, scope),
+        store.lexicalSearch(keywordQuery ?? query, recall.retrievalLimit, scope),
       ]);
       const semantic = semanticResult.status === 'fulfilled' ? semanticResult.value : [];
       const keyword = keywordResult.status === 'fulfilled' ? keywordResult.value : [];
       if (!semantic.length && !keyword.length && semanticResult.status === 'rejected') {
         throw semanticResult.reason;
       }
-      return toolResult(fuseKnowledgeResults(semantic, keyword, limit, {
+      const candidates = fuseKnowledgeResults(semantic, keyword, recall.retrievalLimit, {
         semanticReliable: ai.embeddingModel !== 'local-hash-v1',
         semanticThreshold: 0.58,
         keywordThreshold: 0.16,
+      });
+      return toolResult(await rerankKnowledgeResults({
+        query,
+        candidates,
+        ai,
+        limit: recall.finalLimit,
       }));
     },
   );

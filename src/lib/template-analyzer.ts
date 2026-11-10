@@ -9,13 +9,15 @@ import { z } from 'zod';
 
 import { createChatJsonCompletion } from '@/lib/chat-client';
 import { cleanExtractedText, extractPptxReference } from '@/lib/template-text';
-import type { AiRuntimeConfig, TemplateKind } from '@/types/platform';
+import { parseTemplateBlueprint } from '@/lib/template-blueprint';
+import type { AiRuntimeConfig, TemplateBlueprint, TemplateKind } from '@/types/platform';
 
 const generatedAnalysisSchema = z.object({
   name: z.string().trim().min(1).max(200),
   kind: z.enum(['report', 'presentation', 'both']),
   description: z.string().trim().max(4000),
   instructions: z.string().trim().min(8).max(100_000),
+  blueprint: z.unknown().optional(),
 });
 
 export interface TemplateAnalysis {
@@ -23,6 +25,7 @@ export interface TemplateAnalysis {
   kind: TemplateKind;
   description: string;
   instructions: string;
+  blueprint?: TemplateBlueprint;
   mode: 'ai' | 'extracted';
   paperSourceName?: string;
   slidesSourceName?: string;
@@ -130,12 +133,15 @@ export async function analyzeTemplateReference(input: {
 
   const prompt = [
     'You analyze uploaded style templates only to infer reusable output-format requirements.',
-    'Return JSON only with fields: name, kind, description, instructions.',
+    'Return JSON only with fields: name, kind, description, instructions, blueprint.',
     'kind must be report, presentation, or both.',
     'Write in concise Chinese.',
     'Extract structure, section order, heading hierarchy, length, typography, page layout, tables/figures, citation rules, slide count, visual hierarchy, colors and fonts only when evidenced by the source.',
     'Do not summarize the document topic or copy its substantive content. Do not invent missing rules.',
     'instructions must be an actionable checklist that another model can follow when generating a report or slides.',
+    'blueprint must contain sections [{id,title,purpose}], slides [{id,title,purpose,layout}] and style {citationStyle,headingScheme,reportWords,slideCount,tone,accentColor,fontFamily}.',
+    'Use stable ids such as section-1 and slide-1. layout must be one of title, thesis, landscape, comparison, evidence, roadmap, conclusion.',
+    'When a section/page is not evidenced, use an empty array; do not invent specific school formatting rules.',
     '',
     `Suggested template name: ${fallback.name}`,
     `Suggested kind: ${fallback.kind}`,
@@ -152,8 +158,10 @@ export async function analyzeTemplateReference(input: {
       temperature: 0.1,
       maxTokens: 4096,
     });
+    const generated = generatedAnalysisSchema.parse(parsed);
     return {
-      ...generatedAnalysisSchema.parse(parsed),
+      ...generated,
+      blueprint: parseTemplateBlueprint(generated.blueprint),
       mode: 'ai',
       paperSourceName: paperName,
       slidesSourceName: slidesName,

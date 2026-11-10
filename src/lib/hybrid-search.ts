@@ -43,12 +43,19 @@ export function fuseKnowledgeResults(
     const routes: Array<'semantic' | 'keyword'> = [];
     if (semanticAccepted) routes.push('semantic');
     if (keywordAccepted) routes.push('keyword');
-    const score = semanticAccepted && keywordAccepted
+    const fusedScore = semanticAccepted && keywordAccepted
       ? Math.min(1, semanticScore * 0.62 + keywordScore * 0.38 + 0.2)
       : semanticAccepted
         ? semanticScore
         : Math.min(1, keywordScore * 0.9 + (semanticReliable ? semanticScore * 0.1 : 0));
-    return [{ ...base, score, routes }];
+    return [{
+      ...base,
+      score: fusedScore,
+      fusedScore,
+      semanticScore: semanticAccepted ? semanticScore : 0,
+      keywordScore: keywordAccepted ? keywordScore : 0,
+      routes,
+    }];
   })
     .sort((left, right) => right.score - left.score)
     .slice(0, limit);

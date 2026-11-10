@@ -35,6 +35,8 @@ import { isZhipuBaseUrl } from '@/lib/embedding-dimensions';
 import { DEFAULT_CHAT_BASE_URL, DEFAULT_CHAT_MODEL, DEFAULT_EMBEDDING_BASE_URL, DEFAULT_EMBEDDING_MODEL, MODEL_PROVIDERS, embeddingRequirement, matchProvider } from '@/lib/providers';
 import { DEFAULT_RESEARCH_LAYOUT, LAYOUT_LIMITS, ResizeHandle, useResearchLayout } from '@/components/resize-handle';
 import { StudyChat } from '@/components/study-chat';
+import { TemplateBlueprintEditor } from '@/components/template-blueprint-editor';
+import { blueprintToInstructions, defaultTemplateBlueprint } from '@/lib/template-blueprint';
 import type {
   KnowledgeChunkPreview,
   KnowledgeDocument,
@@ -48,6 +50,7 @@ import type {
   ResearchArtifact,
   ResearchRunSummary,
   RevisionTarget,
+  TemplateBlueprint,
   TemplateKind,
 } from '@/types/platform';
 
@@ -639,8 +642,10 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
               {result?.evidence.length ? result.evidence.slice(0, 10).map((item) => (
                 <article className="evidence-item" key={item.id}>
                   <div><span className={'source-badge ' + item.kind}>{item.id}</span><span className="score">{item.retrievalRoutes?.map((route) => route === 'semantic' ? '语义' : route === 'keyword' ? '关键词' : '模型重排').join(' + ') || ''} {Math.round(item.score * 100)}%</span></div>
-                  <h3>{item.title}</h3>
+                  <h3>{item.title}{item.page ? <small className="evidence-page">第 {item.page} 页</small> : null}</h3>
                   <p>{item.excerpt}</p>
+                  {item.scoreDetails && item.kind === 'knowledge' ? <div className="score-breakdown">{typeof item.scoreDetails.semantic === 'number' ? <span>语义 {Math.round(item.scoreDetails.semantic * 100)}</span> : null}{typeof item.scoreDetails.keyword === 'number' ? <span>关键词 {Math.round(item.scoreDetails.keyword * 100)}</span> : null}{typeof item.scoreDetails.fused === 'number' ? <span>融合 {Math.round(item.scoreDetails.fused * 100)}</span> : null}{typeof item.scoreDetails.rerank === 'number' ? <span>模型 {Math.round(item.scoreDetails.rerank * 100)}</span> : null}</div> : null}
+                  {item.relevanceReason ? <p className="relevance-reason">{item.relevanceReason}</p> : null}
                   {item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">查看来源<ArrowUpRight size={13} /></a> : null}
                 </article>
               )) : <div className="rail-empty"><Database size={20} /><span>暂无证据</span></div>}
@@ -803,12 +808,15 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
     kind: TemplateKind;
     description: string;
     instructions: string;
+    blueprint: TemplateBlueprint;
   }>({
     name: '',
     kind: 'both',
     description: '',
     instructions: '',
+    blueprint: defaultTemplateBlueprint('both'),
   });
+  const [showAdvancedTemplate, setShowAdvancedTemplate] = useState(false);
 
   const loadAiSettings = useCallback(async () => {
     try {
@@ -915,6 +923,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
         kind: payload.analysis.kind,
         description: payload.analysis.description,
         instructions: payload.analysis.instructions,
+        blueprint: payload.analysis.blueprint ?? defaultTemplateBlueprint(payload.analysis.kind),
       });
       setAnalysisMode(payload.analysis.mode);
       onNotice(payload.analysis.mode === 'ai'
@@ -937,6 +946,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       formData.append('kind', templateDraft.kind);
       formData.append('description', templateDraft.description);
       formData.append('instructions', templateDraft.instructions);
+      formData.append('blueprint', JSON.stringify(templateDraft.blueprint));
       if (paperTemplateFile) formData.append('paper', paperTemplateFile);
       if (slidesTemplateFile) formData.append('slides', slidesTemplateFile);
       const response = await fetch(editingTemplateId ? '/api/templates/' + editingTemplateId : '/api/templates', {
@@ -946,7 +956,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '模板保存失败');
       const wasEditing = Boolean(editingTemplateId);
-      setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '' });
+      setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '', blueprint: defaultTemplateBlueprint('both') });
       setPaperTemplateFile(null);
       setSlidesTemplateFile(null);
       setTemplateNote('');
@@ -981,6 +991,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
       kind: template.kind,
       description: template.description,
       instructions: template.instructions,
+      blueprint: template.blueprint ?? defaultTemplateBlueprint(template.kind),
     });
     setPaperTemplateFile(null);
     setSlidesTemplateFile(null);
@@ -993,7 +1004,7 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
   }
 
   function cancelTemplateEdit() {
-    setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '' });
+    setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '', blueprint: defaultTemplateBlueprint('both') });
     setPaperTemplateFile(null);
     setSlidesTemplateFile(null);
     setTemplateNote('');
@@ -1042,13 +1053,19 @@ function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
         <div className="settings-actions analyze-actions"><button type="button" className="button secondary" disabled={analyzingTemplate} onClick={() => void analyzeTemplate()}>{analyzingTemplate ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{analyzingTemplate ? '正在识别' : '智能提取规则'}</button>{analysisMode ? <span className="analysis-status"><Check size={14} />{analysisMode === 'ai' ? 'AI 已完成提炼' : '已提取原始要求'}</span> : null}</div>
 
         <div className="template-editor" ref={templateEditor}>
-          <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} placeholder="例如：本科毕业论文" required /></label><label><span>适用内容</span><select value={templateDraft.kind} onChange={(event) => setTemplateDraft({ ...templateDraft, kind: event.target.value as TemplateKind })}><option value="both">论文与 PPT</option><option value="report">仅论文/报告</option><option value="presentation">仅 PPT</option></select></label></div>
-          <label><span>用途说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} placeholder="这套模板适合什么任务" /></label>
-          <label><span>识别出的生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="上传论文/PPT 模板并智能识别，或直接在这里填写章节、篇幅、版式和展示要求。" minLength={8} maxLength={100000} required /></label>
+          <div className="template-identity">
+            <div className="template-identity-copy"><span>模板工作台</span><strong>先定结构，再写要求</strong><small>下面的章节、页面和样式都可以直接编辑，保存后会成为后续任务的生成规则。</small></div>
+            <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} placeholder="例如：本科毕业论文" required /></label><label><span>适用内容</span><select value={templateDraft.kind} onChange={(event) => { const kind = event.target.value as TemplateKind; setTemplateDraft({ ...templateDraft, kind, blueprint: templateDraft.blueprint.sections.length || templateDraft.blueprint.slides.length ? templateDraft.blueprint : defaultTemplateBlueprint(kind) }); }}><option value="both">论文与 PPT</option><option value="report">仅论文/报告</option><option value="presentation">仅 PPT</option></select></label><label className="template-description-field"><span>用途说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} placeholder="这套模板适合什么任务" /></label></div>
+          </div>
+          <TemplateBlueprintEditor value={templateDraft.blueprint} onChange={(blueprint) => setTemplateDraft((current) => ({ ...current, blueprint, instructions: blueprintToInstructions(blueprint) }))} />
+          <div className="advanced-template">
+            <button type="button" className="advanced-toggle" onClick={() => setShowAdvancedTemplate((current) => !current)}>{showAdvancedTemplate ? <ChevronDown size={15} /> : <ChevronRight size={15} />}高级：查看或编辑完整生成规则</button>
+            {showAdvancedTemplate ? <label><span>完整生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="结构化编辑器会自动生成规则；也可以在这里补充额外约束。" minLength={8} maxLength={100000} required /></label> : <p>结构化编辑会自动生成规则，通常不需要手动修改文本。</p>}
+          </div>
         </div>
-        <div className="settings-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 8}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{editingTemplateId ? '保存修改' : '保存为模板'}</button>{editingTemplateId ? <button className="button secondary" type="button" onClick={cancelTemplateEdit}>取消编辑</button> : null}</div>
+        <div className="settings-actions template-save-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 8}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{editingTemplateId ? '保存修改' : '保存为模板'}</button>{editingTemplateId ? <button className="button secondary" type="button" onClick={cancelTemplateEdit}>取消编辑</button> : null}<span className="template-rule-count">{templateDraft.blueprint.sections.length} 个章节 · {templateDraft.blueprint.slides.length} 个 PPT 页面</span></div>
       </form>
-      <div className="template-list">{templates.map((template) => <div className={'template-row ' + (editingTemplateId === template.id ? 'editing' : '')} key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.paperSourceName ? ` · 论文 ${template.paperSourceName}` : ''}{template.slidesSourceName ? ` · PPT ${template.slidesSourceName}` : ''}{template.description ? ` · ${template.description}` : ''}</span></div><div className="template-row-actions">{template.isDefault ? <span className="default-label">内置</span> : null}<button className="icon-button" type="button" onClick={() => editTemplate(template)} title={template.isDefault ? '复制为自定义模板' : '编辑模板'} aria-label={(template.isDefault ? '复制并编辑 ' : '编辑 ') + template.name}><Pencil size={15} /></button>{!template.isDefault ? <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button> : null}</div></div>)}</div>
+      <div className="template-list">{templates.map((template) => <div className={'template-row ' + (editingTemplateId === template.id ? 'editing' : '')} key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.blueprint ? ` · ${template.blueprint.sections.length} 章 / ${template.blueprint.slides.length} 页 PPT` : ''}{template.paperSourceName ? ` · 论文 ${template.paperSourceName}` : ''}{template.slidesSourceName ? ` · PPT ${template.slidesSourceName}` : ''}{template.description ? ` · ${template.description}` : ''}</span></div><div className="template-row-actions">{template.isDefault ? <span className="default-label">内置</span> : null}<button className="icon-button" type="button" onClick={() => editTemplate(template)} title={template.isDefault ? '复制为自定义模板' : '编辑模板'} aria-label={(template.isDefault ? '复制并编辑 ' : '编辑 ') + template.name}><Pencil size={15} /></button>{!template.isDefault ? <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button> : null}</div></div>)}</div>
     </section>
   </div>;
 }

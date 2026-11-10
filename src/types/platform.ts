@@ -36,6 +36,33 @@ export interface AiSettingsSummary {
 
 export type TemplateKind = 'report' | 'presentation' | 'both';
 
+export interface TemplateSectionBlueprint {
+  id: string;
+  title: string;
+  purpose: string;
+}
+
+export interface TemplateSlideBlueprint {
+  id: string;
+  title: string;
+  purpose: string;
+  layout: 'title' | 'thesis' | 'landscape' | 'comparison' | 'evidence' | 'roadmap' | 'conclusion';
+}
+
+export interface TemplateBlueprint {
+  sections: TemplateSectionBlueprint[];
+  slides: TemplateSlideBlueprint[];
+  style: {
+    citationStyle: string;
+    headingScheme: 'numeric' | 'chinese' | 'plain';
+    reportWords?: number;
+    slideCount?: number;
+    tone: string;
+    accentColor: string;
+    fontFamily: string;
+  };
+}
+
 export interface OutputTemplate {
   id: string;
   name: string;
@@ -48,6 +75,7 @@ export interface OutputTemplate {
   createdAt?: string;
   paperSourceName?: string;
   slidesSourceName?: string;
+  blueprint?: TemplateBlueprint;
 }
 
 export type OutputTemplateSnapshot = Omit<OutputTemplate, 'createdAt'>;

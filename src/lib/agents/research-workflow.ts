@@ -88,7 +88,14 @@ function knowledgeEvidence(matches: KnowledgeSearchResult[]): Evidence[] {
       excerpt: excerpt(match.content, 520),
       page: match.page,
       score: Math.max(0, Math.min(1, match.score)),
+      relevanceReason: match.relevanceReason,
       retrievalRoutes: match.routes,
+      scoreDetails: {
+        semantic: match.semanticScore,
+        keyword: match.keywordScore,
+        fused: match.fusedScore,
+        rerank: match.rerankScore,
+      },
     }));
 }
 

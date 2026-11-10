@@ -10,7 +10,12 @@ import type { KnowledgeChunk, KnowledgeChunkPreview, KnowledgeDocument } from '@
 
 export interface KnowledgeSearchResult extends KnowledgeChunk {
   score: number;
-  routes?: Array<'semantic' | 'keyword'>;
+  semanticScore?: number;
+  keywordScore?: number;
+  fusedScore?: number;
+  rerankScore?: number;
+  relevanceReason?: string;
+  routes?: Array<'semantic' | 'keyword' | 'model'>;
 }
 
 export interface EmbeddingDescriptor {

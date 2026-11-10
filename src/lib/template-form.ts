@@ -1,12 +1,14 @@
 import { z } from 'zod';
 
-import type { TemplateKind } from '@/types/platform';
+import type { TemplateBlueprint, TemplateKind } from '@/types/platform';
+import { parseTemplateBlueprint } from '@/lib/template-blueprint';
 
 export const templateFieldsSchema = z.object({
   name: z.string().trim().min(1).max(200),
   kind: z.enum(['report', 'presentation', 'both']),
   description: z.string().trim().max(4000).default(''),
   instructions: z.string().trim().min(8).max(100000),
+  blueprint: z.unknown().optional(),
 });
 
 export interface TemplateFormPayload {
@@ -14,6 +16,7 @@ export interface TemplateFormPayload {
   kind: TemplateKind;
   description: string;
   instructions: string;
+  blueprint?: TemplateBlueprint;
   paperFile?: File;
   slidesFile?: File;
 }
@@ -31,14 +34,19 @@ export async function readTemplatePayload(request: Request): Promise<TemplateFor
       kind: String(form.get('kind') || 'both'),
       description: String(form.get('description') || ''),
       instructions: String(form.get('instructions') || ''),
+      blueprint: form.get('blueprint') || undefined,
     });
     return {
       ...parsed,
+      blueprint: parseTemplateBlueprint(parsed.blueprint),
       paperFile: asFile(form.get('paper')),
       slidesFile: asFile(form.get('slides')),
     };
   }
 
   const parsed = templateFieldsSchema.parse(await request.json());
-  return parsed;
+  return {
+    ...parsed,
+    blueprint: parseTemplateBlueprint(parsed.blueprint),
+  };
 }

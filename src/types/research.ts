@@ -68,6 +68,13 @@ export interface KnowledgeChunk {
 
 export type KnowledgeChunkPreview = Omit<KnowledgeChunk, "embedding">;
 
+export interface EvidenceScoreDetails {
+  semantic?: number;
+  keyword?: number;
+  fused?: number;
+  rerank?: number;
+}
+
 export interface Evidence {
   id: string;
   kind: ExternalSourceType | "knowledge";
@@ -78,7 +85,9 @@ export interface Evidence {
   page?: number;
   score: number;
   provider?: ExternalSourceProvider;
+  relevanceReason?: string;
   retrievalRoutes?: Array<"semantic" | "keyword" | "model">;
+  scoreDetails?: EvidenceScoreDetails;
 }
 
 export interface ReportSection {
