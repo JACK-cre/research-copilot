@@ -338,6 +338,10 @@ class PgVectorStore implements VectorStore {
     const embedding = requestedEmbedding ?? getEmbeddingIdentity();
     if (scope?.mode !== 'cloud') await this.ensureLegacySchema();
     const queryDimensions = queryVector.length;
+    const supportedIndexDimensions = new Set([256, 384, 512, 768, 1024, 1536]);
+    const vectorExpression = supportedIndexDimensions.has(queryDimensions)
+      ? `(c.embedding::vector(${queryDimensions}))`
+      : 'c.embedding';
     const result = await this.pool.query<{
       id: string;
       document_id: string;
@@ -347,14 +351,14 @@ class PgVectorStore implements VectorStore {
       score: number;
     }>(scope?.mode === 'cloud'
       ? `SELECT c.id, c.document_id, c.document_name, c.content, c.page,
-                1 - (c.embedding <=> $1::vector) AS score
+                1 - (${vectorExpression} <=> $1::vector) AS score
          FROM document_chunks c
          JOIN documents d ON d.id = c.document_id AND d.workspace_id = c.workspace_id
          WHERE c.workspace_id = $2
            AND d.embedding_model = $3
            AND d.embedding_dimensions = $4
            AND vector_dims(c.embedding) = $4
-         ORDER BY c.embedding <=> $1::vector
+         ORDER BY ${vectorExpression} <=> $1::vector
          LIMIT $5`
       : 'SELECT id, document_id, document_name, content, page, 1 - (embedding <=> $1::vector) AS score FROM knowledge_chunks ORDER BY embedding <=> $1::vector LIMIT $2',
     scope?.mode === 'cloud'

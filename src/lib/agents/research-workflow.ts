@@ -5,6 +5,7 @@ import type { AgentTraceStep, CriticReport } from '@/lib/agents/types';
 import { createChatJsonCompletion } from '@/lib/chat-client';
 import { normalizeCriticOutput, normalizeGeneratedResearchOutput, normalizeRerankOutput, type GeneratedOutput } from '@/lib/generated-output';
 import { buildLocalRevision } from '@/lib/local-revision';
+import { auditCitations } from '@/lib/citation-audit';
 import { getPlatformAiRuntimeConfig } from '@/lib/platform-config';
 import { buildSearchPlan, type SearchPlan } from '@/lib/search-plan';
 import { prefilterSources } from '@/lib/source-relevance';
@@ -334,7 +335,7 @@ function buildResearchGraph() {
 
   graph.addNode('planner', async (state) => {
     const step = await runAgentNode('planner', '规划检索', async () => ({
-      summary: `意图 ${state.plan.intent} · 核心主题「${state.plan.coreTopic}」· ${state.plan.queries.length} 组检索式`,
+      summary: `意图 ${state.plan.intent} · 核心主题「${state.plan.coreTopic}」· ${state.plan.subQuestions.length} 个子问题`,
     }));
     return { trace: appendTrace(state.trace, step) };
   });
@@ -351,7 +352,7 @@ function buildResearchGraph() {
     let warnings = [...state.warnings];
     const step = await runAgentNode('researcher', '外部检索', async () => {
       const result = await callResearchTool<{ papers: Paper[]; warnings: string[] }>('search_sources', {
-        queries: state.plan.queries,
+        queries: state.plan.queries.slice(0, 8),
         intent: state.plan.intent,
         yearFrom: state.request.yearFrom,
         limit: 50,
@@ -542,6 +543,7 @@ export async function runResearchAgent(
   });
   const generated = state.generated ?? localSynthesis(request, state.evidence, plan.intent);
   const finalized = finalizeGenerated(generated, state.evidence);
+  const citationAudit = auditCitations(state.evidence, finalized.sections, finalized.slides);
 
   return {
     id: runId,
@@ -559,6 +561,7 @@ export async function runResearchAgent(
     intent: plan.intent,
     aiSource: ai.source,
     template,
+    citationAudit,
     version: 1,
     agentTrace: state.trace,
   };
@@ -661,6 +664,7 @@ export async function refineResearchAgent(input: {
   );
   const generated = modelOutput ?? buildLocalRevision(input.previous, input.instruction, input.target);
   const finalized = finalizeGenerated(generated, input.previous.evidence);
+  const citationAudit = auditCitations(input.previous.evidence, finalized.sections, finalized.slides);
   return {
     ...input.previous,
     id: input.runId,
@@ -680,6 +684,7 @@ export async function refineResearchAgent(input: {
       : [...input.previous.warnings, '模型修订失败或未配置，已生成本地修订说明。'],
     aiSource: input.ai.source,
     template: input.template,
+    citationAudit,
     version: (input.previous.version ?? 1) + 1,
     parentRunId: input.previous.id,
     revisionInstruction: input.instruction,

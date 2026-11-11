@@ -5,9 +5,9 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@napi-rs/canvas", "unpdf", "pngjs"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "200mb",
+      bodySizeLimit: "600mb",
     },
-    proxyClientMaxBodySize: "200mb",
+    proxyClientMaxBodySize: "600mb",
   },
 };
 

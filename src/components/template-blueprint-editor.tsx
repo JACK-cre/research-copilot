@@ -1,6 +1,8 @@
 'use client';
 
 import { ArrowDown, ArrowUp, FileText, GripVertical, Plus, Presentation, Trash2 } from 'lucide-react';
+import { PptxSlideCanvas } from '@/components/pptx-slide-canvas';
+import { DocumentPagePreviewPanel } from '@/components/document-page-preview';
 
 import type {
   TemplateBlueprint,
@@ -33,9 +35,11 @@ function moveItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
 export function TemplateBlueprintEditor({
   value,
   onChange,
+  templateId,
 }: {
   value: TemplateBlueprint;
   onChange: (value: TemplateBlueprint) => void;
+  templateId?: string;
 }) {
   function updateSection(index: number, patch: Partial<TemplateSectionBlueprint>) {
     onChange({
@@ -53,6 +57,25 @@ export function TemplateBlueprintEditor({
 
   return (
     <div className="blueprint-editor">
+      {value.slides.some((slide) => slide.elements?.length) ? <section className="blueprint-panel visual-preview-panel">
+        <header className="blueprint-heading">
+          <div><span className="blueprint-icon coral"><Presentation size={17} /></span><div><strong>上传页面预览</strong><small>按 PPTX 的页面坐标和元素还原，点击元素可调整文字、颜色和位置</small></div></div>
+        </header>
+        <PptxSlideCanvas
+          slides={value.slides}
+          selectedSlideIndex={0}
+          onSelectSlide={() => undefined}
+          onChangeSlide={(index, slide) => onChange({
+            ...value,
+            slides: value.slides.map((current, currentIndex) => currentIndex === index ? slide : current),
+          })}
+          onReorderSlides={(slides) => onChange({ ...value, slides })}
+          templateId={templateId}
+          slideWidth={value.style.slideWidth}
+          slideHeight={value.style.slideHeight}
+        />
+      </section> : null}
+      {value.documentPages?.length ? <DocumentPagePreviewPanel pages={value.documentPages} /> : null}
       <section className="blueprint-panel">
         <header className="blueprint-heading">
           <div><span className="blueprint-icon"><FileText size={17} /></span><div><strong>论文 / 报告结构</strong><small>使用上下箭头调整顺序，生成时会按这里的章节组织内容</small></div></div>
@@ -74,7 +97,7 @@ export function TemplateBlueprintEditor({
         </div> : <div className="blueprint-empty">当前模板只生成 PPT。需要论文结构时添加章节即可。</div>}
       </section>
 
-      <section className="blueprint-panel">
+      {!value.slides.some((slide) => slide.elements?.length) ? <section className="blueprint-panel">
         <header className="blueprint-heading">
           <div><span className="blueprint-icon coral"><Presentation size={17} /></span><div><strong>PPT 页面结构</strong><small>页面类型决定版式，标题和目的决定这一页讲什么</small></div></div>
           <button type="button" className="blueprint-add" onClick={() => onChange({ ...value, slides: [...value.slides, { id: nextId('slide'), title: '新页面', purpose: '一页只表达一个中心观点', layout: 'landscape' }] })}><Plus size={14} />添加页面</button>
@@ -93,7 +116,7 @@ export function TemplateBlueprintEditor({
             </div>
           </article>)}
         </div> : <div className="blueprint-empty">当前模板只生成论文。需要汇报材料时添加幻灯片页面。</div>}
-      </section>
+      </section> : null}
 
       <section className="blueprint-panel style-panel">
         <header className="blueprint-heading"><div><span className="blueprint-icon gold"><SparkleIcon /></span><div><strong>版式与输出规则</strong><small>这些规则会直接进入生成提示词</small></div></div></header>

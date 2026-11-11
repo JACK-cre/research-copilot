@@ -47,7 +47,7 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       title: 'Search research sources',
       description: 'Search public academic indexes, encyclopedias, books, and web references.',
       inputSchema: {
-        queries: z.array(z.string().min(2)).min(1).max(4),
+        queries: z.array(z.string().min(2)).min(1).max(8),
         intent: z.enum(['academic', 'book_review', 'general']),
         yearFrom: z.number().int().min(1900).max(2100),
         limit: z.number().int().min(10).max(60).default(50),

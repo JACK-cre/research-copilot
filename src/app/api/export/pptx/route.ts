@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { apiErrorStatus, requireDataScope } from '@/lib/auth';
-import { removeStoredObjects, uploadArtifact } from '@/lib/cloud-storage';
+import { createStoredObjectDownload, removeStoredObjects, uploadArtifact } from '@/lib/cloud-storage';
 import { buildPresentation } from '@/lib/presentation';
 import {
   createArtifactRecord,
@@ -17,11 +17,34 @@ export async function POST(request: Request) {
   try {
     const scope = await requireDataScope();
     const submitted = (await request.json()) as ResearchResult;
-    const result = scope.mode === 'cloud'
+    let result = scope.mode === 'cloud'
       ? await getResearchResult(scope, submitted?.id)
       : submitted;
     if (!result?.title || !Array.isArray(result.slides) || result.slides.length === 0) {
       return NextResponse.json({ error: '缺少可导出的幻灯片内容。' }, { status: 400 });
+    }
+    // Resolve object-storage-backed template images before rendering. Legacy
+    // templates still carry inline data URLs and work unchanged.
+    if (scope.mode === 'cloud' && result.template?.blueprint) {
+      const hydratedTemplate = {
+        ...result.template,
+        blueprint: {
+          ...result.template.blueprint,
+          slides: await Promise.all(result.template.blueprint.slides.map(async (slide) => ({
+            ...slide,
+            elements: await Promise.all((slide.elements ?? []).map(async (element) => {
+              if (!element.imageStoragePath || element.imageDataUrl) return element;
+              const download = await createStoredObjectDownload(scope, element.imageStoragePath);
+              if (download.kind !== 'bytes') return element;
+              return {
+                ...element,
+                imageDataUrl: `data:image/png;base64,${Buffer.from(download.bytes).toString('base64')}`,
+              };
+            })),
+          }))),
+        },
+      };
+      result = { ...result, template: hydratedTemplate };
     }
     const bytes = await buildPresentation(result);
     if (scope.mode === 'cloud') {

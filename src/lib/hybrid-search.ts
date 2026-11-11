@@ -13,7 +13,14 @@ export function calculateKeywordScore(content: string, terms: string[]): number 
   const coverage = matched.length / terms.length;
   const specificity = matched.reduce((sum, term) => sum + Math.min(term.length, 12), 0)
     / terms.reduce((sum, term) => sum + Math.min(term.length, 12), 0);
-  return Math.min(1, coverage * 0.65 + specificity * 0.35);
+  // BM25-style term frequency saturation: repeated occurrences still help,
+  // but long chunks cannot win merely by repeating a keyword many times.
+  const lengthNorm = Math.max(0.6, Math.min(1.4, 800 / Math.max(80, content.length)));
+  const frequency = matched.reduce((sum, term) => {
+    const occurrences = normalized.split(term).length - 1;
+    return sum + (occurrences / (occurrences + 1.2));
+  }, 0) / Math.max(1, matched.length);
+  return Math.min(1, coverage * 0.55 + specificity * 0.25 + frequency * 0.2 * lengthNorm);
 }
 
 export function fuseKnowledgeResults(

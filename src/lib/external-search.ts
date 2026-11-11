@@ -69,6 +69,7 @@ export async function searchExternalSources(input: {
   ai?: Pick<AiRuntimeConfig, 'apiKey' | 'baseURL'>;
 }): Promise<ExternalSearchResult> {
   const primary = input.queries[0];
+  const queryVariants = Array.from(new Set(input.queries.map((query) => query.trim()).filter(Boolean))).slice(0, 3);
   const academicYearFrom = resolveAcademicYearFrom(input.intent, input.yearFrom);
   const includeBooks = input.intent !== 'academic';
   const includeScholarlyIndexes = input.intent !== 'book_review';
@@ -78,9 +79,12 @@ export async function searchExternalSources(input: {
       ? `${primary} 论文 综述`
       : `${primary} 背景 资料`;
 
+  const secondary = queryVariants[1] ?? primary;
   const [
     openAlex,
+    openAlexSecondary,
     crossref,
+    crossrefSecondary,
     europePmc,
     semanticScholar,
     arxiv,
@@ -92,7 +96,9 @@ export async function searchExternalSources(input: {
     web,
   ] = await Promise.all([
     searchOpenAlex(primary, { yearFrom: academicYearFrom, limit: 25 }),
+    includeScholarlyIndexes ? searchOpenAlex(secondary, { yearFrom: academicYearFrom, limit: 12 }) : Promise.resolve(emptyResult),
     searchCrossref(primary, { yearFrom: academicYearFrom, limit: 18 }),
+    includeScholarlyIndexes ? searchCrossref(secondary, { yearFrom: academicYearFrom, limit: 10 }) : Promise.resolve(emptyResult),
     includeScholarlyIndexes
       ? searchEuropePmc(primary, { yearFrom: academicYearFrom, limit: 12 })
       : Promise.resolve(emptyResult),
@@ -119,12 +125,16 @@ export async function searchExternalSources(input: {
       ...books.papers,
       ...archive.papers,
       ...openAlex.papers,
+      ...openAlexSecondary.papers,
       ...crossref.papers,
+      ...crossrefSecondary.papers,
     ]
     : input.intent === 'academic'
       ? [
         ...openAlex.papers,
+        ...openAlexSecondary.papers,
         ...crossref.papers,
+        ...crossrefSecondary.papers,
         ...semanticScholar.papers,
         ...europePmc.papers,
         ...arxiv.papers,
@@ -139,7 +149,9 @@ export async function searchExternalSources(input: {
         ...wikidata.papers,
         ...web.papers,
         ...openAlex.papers,
+        ...openAlexSecondary.papers,
         ...crossref.papers,
+        ...crossrefSecondary.papers,
         ...semanticScholar.papers,
         ...europePmc.papers,
         ...arxiv.papers,
@@ -150,7 +162,9 @@ export async function searchExternalSources(input: {
   const papers = deduplicate(ordered).slice(0, input.limit ?? 50);
   const rawWarnings = [
     openAlex.warning,
+    openAlexSecondary.warning,
     crossref.warning,
+    crossrefSecondary.warning,
     europePmc.warning,
     semanticScholar.warning,
     arxiv.warning,

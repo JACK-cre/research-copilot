@@ -8,6 +8,24 @@ export interface SearchPlan {
   intent: ResearchIntent;
   coreTopic: string;
   queries: string[];
+  subQuestions: string[];
+}
+
+export function buildSubQuestions(coreTopic: string, requirements: string, intent: ResearchIntent): string[] {
+  const requirementParts = requirements
+    .split(/[；;。\n]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 2)
+    .slice(0, 3);
+  const base = intent === 'book_review'
+    ? ['作者与创作背景', '核心主题与内容', '历史语境与评价', '当代启示与个人思考']
+    : intent === 'academic'
+      ? ['核心概念与问题定义', '已有方法与代表工作', '证据、实验或案例', '局限、争议与未来方向']
+      : ['背景与事实', '关键概念与机制', '案例与现实应用', '风险、争议与结论'];
+  return Array.from(new Set([
+    ...base.map((question) => `${coreTopic} ${question}`),
+    ...requirementParts.map((part) => `${coreTopic} ${part}`),
+  ])).slice(0, 6);
 }
 
 export function detectResearchIntent(request: Pick<ResearchRequest, 'topic' | 'requirements' | 'audience'>): ResearchIntent {
@@ -50,5 +68,10 @@ export function buildSearchPlan(request: ResearchRequest): SearchPlan {
         requirements ? `${coreTopic} ${requirements}` : `${coreTopic} 分析 观点`,
       ];
 
-  return { intent, coreTopic, queries: Array.from(new Set(queries.map((query) => query.trim()).filter(Boolean))) };
+  const subQuestions = buildSubQuestions(coreTopic, requirements, intent);
+  const expandedQueries = Array.from(new Set([
+    ...queries.map((query) => query.trim()).filter(Boolean),
+    ...subQuestions.slice(0, 3),
+  ]));
+  return { intent, coreTopic, queries: expandedQueries, subQuestions };
 }

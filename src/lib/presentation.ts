@@ -1,5 +1,6 @@
 import PptxGenJS from 'pptxgenjs';
 
+import type { TemplateSlideBlueprint, TemplateSlideElement } from '@/types/platform';
 import type { ResearchResult, SlideSpec } from '@/types/research';
 
 const COLORS = {
@@ -72,6 +73,101 @@ function addFrame(
       margin: 0,
     });
   }
+}
+
+
+function toHex(color: string | undefined, fallback: string): string {
+  return (color ?? fallback).replace(/^#/, '').toUpperCase();
+}
+
+function addTemplateSlide(
+  pptx: PptxGenJS,
+  slide: PptxGenJS.Slide,
+  templateSlide: TemplateSlideBlueprint,
+  spec: SlideSpec,
+  templateWidth: number,
+  templateHeight: number,
+  fallbackText: string,
+) {
+  const width = templateWidth || 960;
+  const height = templateHeight || 540;
+  const pxX = (value: number) => value / width * 13.333;
+  const pxY = (value: number) => value / height * 7.5;
+  slide.background = { color: toHex(templateSlide.background, 'FFFFFF') };
+  const elements = (templateSlide.elements ?? []).slice().sort((left, right) => left.zIndex - right.zIndex);
+  let textSlot = 0;
+  for (const element of elements) {
+    const x = pxX(element.x);
+    const y = pxY(element.y);
+    const w = Math.max(0.02, pxX(element.width));
+    const h = Math.max(0.02, pxY(element.height));
+    if (element.type === 'image' && element.imageDataUrl) {
+      slide.addImage({
+        data: element.imageDataUrl,
+        x,
+        y,
+        w,
+        h,
+        sizing: { type: 'contain', w, h },
+      });
+      continue;
+    }
+    if (element.type === 'shape') {
+      const shape = element.shape === 'ellipse'
+        ? pptx.ShapeType.ellipse
+        : element.shape === 'line'
+          ? pptx.ShapeType.line
+          : pptx.ShapeType.rect;
+      slide.addShape(shape, {
+        x,
+        y,
+        w,
+        h,
+        fill: element.fill ? { color: toHex(element.fill, 'FFFFFF') } : { color: 'FFFFFF', transparency: 100 },
+        line: element.stroke ? { color: toHex(element.stroke, 'FFFFFF'), width: 1 } : { color: 'FFFFFF', transparency: 100 },
+        ...(element.shape === 'roundRect' ? { rectRadius: 0.04 } : {}),
+      });
+      continue;
+    }
+    if (element.type === 'text') {
+      // The uploaded deck supplies the visual layout; generated content supplies
+      // the text. Keep the first text element as the title and distribute
+      // subsequent content into the remaining text slots.
+      const generatedText = textSlot === 0
+        ? spec.title
+        : spec.keyPoints[textSlot - 1] ?? '';
+      textSlot += 1;
+      if (!generatedText) continue;
+      slide.addText(trimText(generatedText, 260), {
+        x,
+        y,
+        w,
+        h,
+        fontFace: element.fontFamily || 'Aptos',
+        fontSize: Math.max(8, Math.min(40, (element.fontSize ?? 16) * 0.72)),
+        bold: element.fontWeight === 'bold',
+        color: toHex(element.color, '17211F'),
+        align: element.align ?? 'left',
+        valign: 'middle',
+        margin: 0.02,
+        breakLine: false,
+        fit: 'shrink',
+      });
+    }
+  }
+  if (spec.citations.length) {
+    slide.addText(spec.citations.map((id) => `[${id}]`).join(' '), {
+      x: 0.6,
+      y: 7.13,
+      w: 12.1,
+      h: 0.18,
+      fontSize: 8,
+      color: '65716E',
+      align: 'right',
+      margin: 0,
+    });
+  }
+  if (!elements.length) slide.addText(trimText(fallbackText, 220), { x: 0.8, y: 1.4, w: 11.6, h: 5, fontSize: 20, color: '17211F' });
 }
 
 function addBullets(slide: PptxGenJS.Slide, points: string[], options?: { y?: number; color?: string }) {
@@ -193,8 +289,20 @@ export async function buildPresentation(result: ResearchResult): Promise<Uint8Ar
   result.slides.forEach((spec, index) => {
     const slide = pptx.addSlide();
     const slideNumber = index + 1;
+    const visualTemplate = result.template?.blueprint;
+    const templateSlide = visualTemplate?.slides[index];
 
-    if (spec.type === 'title') {
+    if (templateSlide?.elements?.length) {
+      addTemplateSlide(
+        pptx,
+        slide,
+        templateSlide,
+        spec,
+        visualTemplate?.style.slideWidth ?? 960,
+        visualTemplate?.style.slideHeight ?? 540,
+        spec.keyPoints.join(' '),
+      );
+    } else if (spec.type === 'title') {
       slide.background = { color: COLORS.ink };
       slide.addShape(pptx.ShapeType.rect, {
         x: 0.75,

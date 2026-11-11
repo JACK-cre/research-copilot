@@ -31,14 +31,13 @@ describe('platform configuration', () => {
     expect(() => getEmbeddingDimensions()).toThrow('正整数');
   });
 
-  it('does not cap personal keys and only limits platform usage', () => {
+  it('does not impose a daily research task quota', () => {
     vi.stubEnv('AI_ACCESS_MODE', 'hybrid');
     expect(getAiAccessMode()).toBe('hybrid');
-    vi.stubEnv('DAILY_BYOK_RESEARCH_LIMIT', '75');
     vi.stubEnv('DAILY_RESEARCH_LIMIT', '20');
     expect(getResearchLimit('personal')).toBe(0);
     expect(getResearchLimit('local')).toBe(0);
-    expect(getResearchLimit('platform')).toBe(20);
+    expect(getResearchLimit('platform')).toBe(0);
   });
 
   it('keeps local embeddings independent from the chat provider', () => {

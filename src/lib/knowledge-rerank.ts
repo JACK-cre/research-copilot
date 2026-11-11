@@ -1,4 +1,5 @@
 import { createChatJsonCompletion } from '@/lib/chat-client';
+import { diversifyKnowledgeResults } from '@/lib/evidence-diversity';
 import { excerpt } from '@/lib/text';
 import type { KnowledgeSearchResult } from '@/lib/vector-store';
 import type { AiRuntimeConfig } from '@/types/platform';
@@ -58,7 +59,7 @@ export function finalizeKnowledgeRerank(
     if (!candidate) return [];
     const fusedScore = Math.max(0, Math.min(1, candidate.fusedScore ?? candidate.score));
     const score = Math.max(0, Math.min(1, item.score * 0.68 + fusedScore * 0.32));
-    if (score < 0.48 || (item.score < 0.55 && fusedScore < 0.45)) return [];
+    if (score < 0.42 || (item.score < 0.48 && fusedScore < 0.36)) return [];
     const routes = new Set(candidate.routes ?? []);
     routes.add('model');
     return [{
@@ -118,13 +119,15 @@ export async function rerankKnowledgeResults(input: {
       timeoutMs: input.timeoutMs ?? KNOWLEDGE_RERANK_TIMEOUT_MS,
     });
     const ranked = finalizeKnowledgeRerank(input.candidates, parseRerankItems(parsed), limit);
-    if (ranked.length) return ranked;
+    if (ranked.length) return diversifyKnowledgeResults(ranked, limit);
   } catch (error) {
     console.warn('Knowledge reranking failed; using fused retrieval scores.', error);
   }
 
-  return input.candidates
-    .filter((candidate) => candidate.score >= 0.32)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit);
+  return diversifyKnowledgeResults(
+    input.candidates
+      .filter((candidate) => candidate.score >= 0.32)
+      .sort((left, right) => right.score - left.score),
+    limit,
+  );
 }

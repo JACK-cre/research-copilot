@@ -121,6 +121,13 @@ export interface GeneratedResearchOutput {
   slides: SlideSpec[];
 }
 
+export interface CitationAuditSummary {
+  valid: boolean;
+  issues: Array<{ location: string; citation: string; kind: 'missing' | 'duplicate' | 'weak'; message: string }>;
+  citedEvidence: number;
+  totalEvidence: number;
+}
+
 export interface ResearchResult {
   id: string;
   createdAt: string;
@@ -137,6 +144,7 @@ export interface ResearchResult {
   intent?: ResearchIntent;
   aiSource?: AiCredentialSource;
   template?: OutputTemplateSnapshot;
+  citationAudit?: CitationAuditSummary;
   version?: number;
   parentRunId?: string;
   revisionInstruction?: string;

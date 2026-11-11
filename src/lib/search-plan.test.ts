@@ -21,6 +21,7 @@ describe('research search planning', () => {
     expect(plan.coreTopic).toBe('长征');
     expect(plan.queries[0]).toBe('长征');
     expect(plan.queries.some((query) => query.includes('作者'))).toBe(true);
+    expect(plan.subQuestions.length).toBeGreaterThanOrEqual(4);
   });
 
   it('routes technical literature reviews to academic research', () => {

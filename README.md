@@ -18,7 +18,7 @@
 - 知网/万方/维普没有开放检索接口，因此不抓取付费论文库；学术任务会给出知网检索入口，DOI 可继续到知网打开
 - 关键词预筛与对话模型重排，使用真实相关性分数并丢弃无关结果
 - 论文模板支持 Word/PDF，PPT 模板支持 PPTX，可分别上传后提取版式规则并保存
-- PDF、Markdown、TXT 解析、切分与向量化；扫描版或带图 PDF 会用 glm-5.3-flash 看图分析（含义 + 图中文字），结果写入知识库文本块（默认前 20 页）；单次上传约 200MB，知识库总容量默认 2GB
+- PDF、Markdown、TXT 解析、切分与向量化；扫描版或带图 PDF 会用 glm-5.3-flash 看图分析（含义 + 图中文字），结果写入知识库文本块（默认前 20 页）；单文件上限 500MB、单批上限 600MB，知识库总容量默认 2GB
 - 在知识库中展开查看文档的关键索引证据段落
 - PostgreSQL + pgvector 语义召回、关键词召回和融合排序
 - 自有邮箱密码账户、HttpOnly 数据库会话和私有工作空间
@@ -48,7 +48,7 @@ npm run dev
 
 ```bash
 cp .env.docker.example .env
-docker compose up --build -d
+docker compose up --build -d  # app + worker + postgres
 ```
 
 容器启动时会自动执行 `database/migrations/`。配置 `DATABASE_URL` 和至少 32 位的 `AUTH_SECRET` 后，用户可以直接在网页注册、登录和使用，不需要在自己的电脑运行代码。
@@ -60,6 +60,7 @@ docker compose up --build -d
 - Caddy 自动申请和续期 HTTPS 证书
 - Next.js Node 22 容器
 - PostgreSQL 17 + pgvector
+- 独立的知识库 worker 和研究任务 worker
 - 数据库、上传文件和证书持久卷
 - 容器健康检查和日志轮转
 

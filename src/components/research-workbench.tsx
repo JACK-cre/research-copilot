@@ -22,6 +22,7 @@ import {
   PanelLeft,
   Pencil,
   Presentation,
+  RefreshCw,
   Search,
   Settings,
   Sparkles,
@@ -31,12 +32,11 @@ import {
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
-import { isZhipuBaseUrl } from '@/lib/embedding-dimensions';
-import { DEFAULT_CHAT_BASE_URL, DEFAULT_CHAT_MODEL, DEFAULT_EMBEDDING_BASE_URL, DEFAULT_EMBEDDING_MODEL, MODEL_PROVIDERS, embeddingRequirement, matchProvider } from '@/lib/providers';
 import { DEFAULT_RESEARCH_LAYOUT, LAYOUT_LIMITS, ResizeHandle, useResearchLayout } from '@/components/resize-handle';
 import { StudyChat } from '@/components/study-chat';
-import { TemplateBlueprintEditor } from '@/components/template-blueprint-editor';
-import { blueprintToInstructions, defaultTemplateBlueprint } from '@/lib/template-blueprint';
+import { ResearchHistoryView } from '@/components/research-history-view';
+import { SettingsView } from '@/components/settings-view';
+import { ResearchLibraryView } from '@/components/research-library-view';
 import type {
   KnowledgeChunkPreview,
   KnowledgeDocument,
@@ -53,6 +53,8 @@ import type {
   TemplateBlueprint,
   TemplateKind,
 } from '@/types/platform';
+import type { IngestionJob } from '@/types/ingestion';
+import type { ResearchJob } from '@/types/research-job';
 
 type WorkspaceView = 'research' | 'study' | 'library' | 'history' | 'settings';
 type ResultTab = 'overview' | 'papers' | 'report' | 'slides';
@@ -130,10 +132,12 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   const [request, setRequest] = useState<ResearchRequest>(initialRequest);
   const [result, setResult] = useState<ResearchResult | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [ingestionJobs, setIngestionJobs] = useState<IngestionJob[]>([]);
   const [runs, setRuns] = useState<ResearchRunSummary[]>([]);
   const [artifacts, setArtifacts] = useState<ResearchArtifact[]>([]);
   const [templates, setTemplates] = useState<OutputTemplate[]>([]);
   const [running, setRunning] = useState(false);
+  const [activeResearchJob, setActiveResearchJob] = useState<ResearchJob | null>(null);
   const [refining, setRefining] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -155,6 +159,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '知识库读取失败');
       setDocuments(payload.documents);
+      setIngestionJobs(payload.jobs ?? []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '知识库读取失败');
     }
@@ -195,7 +200,51 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     void loadLibrary();
     void loadHistory();
     void loadTemplates();
+    void fetch('/api/research/jobs', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((payload) => {
+        if (payload?.jobs?.[0]) setActiveResearchJob(payload.jobs[0]);
+      })
+      .catch(() => undefined);
   }, [loadHistory, loadLibrary, loadTemplates]);
+
+  useEffect(() => {
+    if (!activeResearchJob) return;
+    if (!running && (activeResearchJob.status === 'queued' || activeResearchJob.status === 'running')) {
+      setRunning(true);
+      setNotice('检测到后台研究任务，正在继续等待结果');
+      void waitForResearchJob(activeResearchJob.id)
+        .then(async (job) => {
+          if (job.status === 'failed') throw new Error(job.error || '研究任务执行失败');
+          if (job.status === 'cancelled') throw new Error('研究任务已取消');
+          const response = await fetch('/api/research/' + job.runId, { cache: 'no-store' });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || '研究结果读取失败');
+          setResult(payload.result);
+          setRequest(payload.result.request);
+          setArtifacts(payload.artifacts ?? []);
+        })
+        .catch((error) => setError(error instanceof Error ? error.message : '研究任务读取失败'))
+        .finally(() => { setRunning(false); setActiveResearchJob(null); });
+    }
+    const mapped = activeResearchJob.stage === 'planning' ? 0
+      : activeResearchJob.stage === 'researching' ? 1
+        : activeResearchJob.stage === 'revising' ? 4
+          : Math.min(stages.length - 1, Math.floor(activeResearchJob.progress / 25));
+    setStage(mapped);
+  }, [activeResearchJob, running]);
+
+  useEffect(() => {
+    const hasActiveJobs = ingestionJobs.some((job) => job.status === 'queued' || job.status === 'processing');
+    if (!hasActiveJobs) return;
+    const timer = window.setInterval(() => {
+      void loadLibrary();
+    }, 2_500);
+    return () => window.clearInterval(timer);
+  }, [ingestionJobs, loadLibrary]);
 
   useEffect(() => {
     if (!notice) return;
@@ -216,6 +265,26 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     return Array.from(counts.entries()).sort(([left], [right]) => left - right);
   }, [result]);
 
+  async function waitForResearchJob(id: string): Promise<ResearchJob> {
+    for (;;) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
+      const response = await fetch('/api/research/jobs/' + id, { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || '研究任务状态读取失败');
+      setActiveResearchJob(payload.job);
+      if (payload.job.status === 'completed' || payload.job.status === 'failed' || payload.job.status === 'cancelled') return payload.job;
+    }
+  }
+
+  async function cancelActiveResearchJob() {
+    if (!activeResearchJob) return;
+    const response = await fetch('/api/research/jobs/' + activeResearchJob.id, { method: 'DELETE' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || '取消失败');
+    setActiveResearchJob(payload.job);
+    setNotice('研究任务已取消');
+  }
+
   async function runResearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRunning(true);
@@ -234,17 +303,35 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
         body: JSON.stringify(request),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || '研究任务执行失败');
-      setResult(payload);
-      setArtifacts([]);
+      if (!response.ok) throw new Error(payload.error || '研究任务创建失败');
+      if (!payload.queued) {
+        setResult(payload);
+        setArtifacts([]);
+        setStage(stages.length - 1);
+        setNotice(payload.mode === 'model' ? '已使用模型完成生成' : '已使用本地生成器完成，可配置模型提升内容质量');
+        void loadHistory();
+        return;
+      }
+      setActiveResearchJob(payload.job);
+      setNotice('研究任务已进入后台执行，可以切换页面，完成后会自动加载');
+      const job = await waitForResearchJob(payload.job.id);
+      if (job.status === 'cancelled') throw new Error('研究任务已取消。');
+      if (job.status === 'failed') throw new Error(job.error || '研究任务执行失败。');
+      const resultResponse = await fetch('/api/research/' + job.runId, { cache: 'no-store' });
+      const resultPayload = await resultResponse.json();
+      if (!resultResponse.ok) throw new Error(resultPayload.error || '研究结果读取失败');
+      setResult(resultPayload.result);
+      setRequest(resultPayload.result.request);
+      setArtifacts(resultPayload.artifacts ?? []);
       setStage(stages.length - 1);
-      setNotice(payload.mode === 'model' ? '已使用模型完成生成' : '已使用本地生成器完成，可配置模型提升内容质量');
+      setNotice(resultPayload.result.mode === 'model' ? '已使用模型完成生成' : '已使用本地生成器完成，可配置模型提升内容质量');
       void loadHistory();
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : '研究任务执行失败');
     } finally {
       window.clearInterval(timer);
       setRunning(false);
+      setActiveResearchJob(null);
     }
   }
 
@@ -266,18 +353,31 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '版本修改失败');
-      setResult(payload);
-      setRequest(payload.request);
-      setArtifacts([]);
+      if (payload.queued) {
+        setActiveResearchJob(payload.job);
+        setNotice('修订任务已进入后台执行，完成后会自动加载新版本');
+        const job = await waitForResearchJob(payload.job.id);
+        if (job.status === 'cancelled') throw new Error('修订任务已取消。');
+        if (job.status === 'failed') throw new Error(job.error || '版本修改失败。');
+        const resultResponse = await fetch('/api/research/' + job.runId, { cache: 'no-store' });
+        const resultPayload = await resultResponse.json();
+        if (!resultResponse.ok) throw new Error(resultPayload.error || '研究结果读取失败');
+        setResult(resultPayload.result);
+        setRequest(resultPayload.result.request);
+        setArtifacts(resultPayload.artifacts ?? []);
+      } else {
+        setResult(payload);
+        setRequest(payload.request);
+        setArtifacts([]);
+      }
       setRevisionInstruction('');
-      setNotice(payload.mode === 'model'
-        ? '已使用模型生成 V' + (payload.version ?? 1) + '，上一版仍保留在研究历史中'
-        : '已生成 V' + (payload.version ?? 1) + ' 的本地证据扩展；复杂语义重写请先在配置中心连接模型');
+      setNotice('新版本已完成，上一版仍保留在研究历史中');
       void loadHistory();
     } catch (refineError) {
       setError(refineError instanceof Error ? refineError.message : '版本修改失败');
     } finally {
       setRefining(false);
+      setActiveResearchJob(null);
     }
   }
 
@@ -291,9 +391,11 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       Array.from(files).forEach((file) => formData.append('files', file));
       const response = await fetch('/api/library', { method: 'POST', body: formData });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || '文件处理失败');
+      if (!response.ok) throw new Error(payload.error || '文件上传失败');
       await loadLibrary();
-      setNotice('已写入 ' + payload.documents.length + ' 份资料');
+      setNotice(payload.queued
+        ? '已提交 ' + payload.jobs.length + ' 个后台解析任务，可切到其他页面继续使用'
+        : '已写入 ' + payload.documents.length + ' 份资料');
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : '文件处理失败');
     } finally {
@@ -544,6 +646,8 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                   {running ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}
                   {running ? '正在研究' : '开始研究'}
                 </button>
+                {activeResearchJob && running ? <button className="button secondary" type="button" onClick={() => void cancelActiveResearchJob().catch((error) => setError(error instanceof Error ? error.message : '取消失败'))}>取消后台任务</button> : null}
+                {activeResearchJob && running ? <div className="research-job-status"><span>{activeResearchJob.stage === 'planning' ? '规划检索' : activeResearchJob.stage === 'researching' ? '检索与生成' : activeResearchJob.stage === 'revising' ? '修订版本' : '执行中'}</span><strong>{activeResearchJob.progress}%</strong></div> : null}
               </form>
 
               <div className="process-list" aria-label="任务进度">
@@ -654,8 +758,8 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
         ) : view === 'study' ? (
           <StudyChat onError={setError} onNotice={setNotice} />
         ) : view === 'library' ? (
-          <LibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} onError={setError} cloudEnabled={cloudEnabled} />
-        ) : view === 'history' ? <HistoryView runs={runs} deletingRunId={deletingRunId} onOpen={openRun} onDelete={deleteRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
+          <ResearchLibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} onError={setError} cloudEnabled={cloudEnabled} jobs={ingestionJobs} onRetryJob={async (id: string) => { const response = await fetch('/api/library/jobs/' + id + '/retry', { method: 'POST' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '重试失败'); await loadLibrary(); }} onCancelJob={async (id: string) => { const response = await fetch('/api/library/jobs/' + id, { method: 'DELETE' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '取消失败'); await loadLibrary(); }} onReindex={async (id: string) => { const response = await fetch('/api/library/' + id + '/reindex', { method: 'POST' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '重建索引失败'); await loadLibrary(); }} />
+        ) : view === 'history' ? <ResearchHistoryView runs={runs} deletingRunId={deletingRunId} onOpen={openRun} onDelete={deleteRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
       </section>
     </main>
   );
@@ -672,6 +776,10 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
         <div><strong>{result.sections.length}</strong><span>文稿章节</span></div>
         <div><strong>{result.slides.length}</strong><span>幻灯片</span></div>
       </div>
+      {result.citationAudit ? <section className={'citation-audit ' + (result.citationAudit.valid ? 'valid' : 'warning')}>
+        <div><Check size={16} /><strong>{result.citationAudit.valid ? '引用检查通过' : '发现引用问题'}</strong><span>已引用 {result.citationAudit.citedEvidence}/{result.citationAudit.totalEvidence} 条证据</span></div>
+        {result.citationAudit.issues.length ? <ul>{result.citationAudit.issues.slice(0, 6).map((issue, index) => <li key={issue.location + issue.citation + index}><strong>{issue.location}</strong><span>{issue.citation} · {issue.message}</span></li>)}</ul> : null}
+      </section> : null}
       {artifacts.length ? <section className="content-section">
         <div className="section-title"><h3>已归档成果</h3><span>{artifacts.length} 个文件</span></div>
         <div className="artifact-list">{artifacts.map((artifact) => <a href={'/api/artifacts/' + artifact.id} target="_blank" rel="noreferrer" key={artifact.id}><span className="artifact-icon">{artifact.type === 'pptx' ? <Presentation size={16} /> : <FileText size={16} />}</span><span><strong>{artifact.fileName}</strong><small>{formatBytes(artifact.size)} · {new Date(artifact.createdAt).toLocaleString('zh-CN')}</small></span><Download size={15} /></a>)}</div>
@@ -711,361 +819,4 @@ function Report({ result }: { result: ResearchResult }) {
 
 function Slides({ result }: { result: ResearchResult }) {
   return <div className="slide-grid">{result.slides.map((slide, index) => <article className={'slide-preview slide-' + slide.type} key={index}><div className="slide-top"><span>{String(index + 1).padStart(2, '0')}</span><Presentation size={14} /></div><h3>{slide.title}</h3><ul>{slide.keyPoints.slice(0, 5).map((point) => <li key={point}>{point}</li>)}</ul><footer>{citationText(slide.citations)}</footer></article>)}</div>;
-}
-
-function LibraryView({ documents, uploading, fileInput, onUpload, onDelete, onError, cloudEnabled }: { documents: KnowledgeDocument[]; uploading: boolean; fileInput: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | null) => void; onDelete: (id: string) => Promise<void>; onError: (message: string) => void; cloudEnabled: boolean }) {
-  const [expandedDocumentId, setExpandedDocumentId] = useState<string | null>(null);
-  const [loadingEvidenceId, setLoadingEvidenceId] = useState<string | null>(null);
-  const [evidenceByDocument, setEvidenceByDocument] = useState<Record<string, KnowledgeChunkPreview[]>>({});
-
-  useEffect(() => {
-    const documentIds = new Set(documents.map((document) => document.id));
-    if (expandedDocumentId && !documentIds.has(expandedDocumentId)) setExpandedDocumentId(null);
-    setEvidenceByDocument((current) => Object.fromEntries(
-      Object.entries(current).filter(([documentId]) => documentIds.has(documentId)),
-    ));
-  }, [documents, expandedDocumentId]);
-
-  async function toggleEvidence(documentId: string) {
-    if (expandedDocumentId === documentId) {
-      setExpandedDocumentId(null);
-      return;
-    }
-    setExpandedDocumentId(documentId);
-    if (evidenceByDocument[documentId]) return;
-    setLoadingEvidenceId(documentId);
-    onError('');
-    try {
-      const response = await fetch('/api/library/' + documentId + '/evidence', { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || '证据片段读取失败');
-      setEvidenceByDocument((current) => ({ ...current, [documentId]: payload.chunks ?? [] }));
-    } catch (loadError) {
-      onError(loadError instanceof Error ? loadError.message : '证据片段读取失败');
-      setExpandedDocumentId(null);
-    } finally {
-      setLoadingEvidenceId(null);
-    }
-  }
-
-  return (
-    <div className="library-layout">
-      <input ref={fileInput} hidden type="file" accept=".pdf,.md,.txt,application/pdf,text/plain,text/markdown" multiple onChange={(event) => void onUpload(event.target.files)} />
-      <section className="upload-zone" onClick={() => fileInput.current?.click()}>
-        {uploading ? <LoaderCircle className="spin" size={28} /> : <Upload size={28} />}
-        <h2>{uploading ? '正在解析与向量化' : '添加研究资料'}</h2>
-        <p>PDF、Markdown、TXT。扫描版或带图 PDF 会用对话模型看图并写入分析（推荐 glm-5.3-flash），单次上传约 200MB</p>
-      </section>
-      <section className="library-table-section">
-        <div className="section-title"><h3>已索引资料</h3><span>{documents.length} 份文档</span></div>
-        {documents.length ? <div className="library-table"><div className="library-head"><span>名称</span><span>大小</span><span>分块</span><span>写入时间</span></div>{documents.map((document) => <div className="library-entry" key={document.id}><div className="library-row"><span className="document-name"><FileText size={16} />{document.name}</span><span>{formatBytes(document.size)}</span><span>{document.chunkCount}</span><span>{new Date(document.createdAt).toLocaleString('zh-CN')}</span><span className="row-actions"><button className="icon-button" type="button" onClick={() => void toggleEvidence(document.id)} title="查看关键证据段落" aria-label={'查看 ' + document.name + ' 的证据片段'}>{loadingEvidenceId === document.id ? <LoaderCircle className="spin" size={15} /> : expandedDocumentId === document.id ? <ChevronDown size={15} /> : <Eye size={15} />}</button>{cloudEnabled ? <a className="icon-button" href={'/api/library/' + document.id} title="下载原文件" aria-label={'下载 ' + document.name}><Download size={15} /></a> : null}<button className="icon-button danger" type="button" onClick={() => void onDelete(document.id)} title="删除资料" aria-label={'删除 ' + document.name}><Trash2 size={15} /></button></span></div>{expandedDocumentId === document.id ? <div className="document-evidence-panel"><header><div><strong>关键证据段落</strong><span>从 {document.chunkCount} 个索引分块中按信息量展示</span></div><small>{evidenceByDocument[document.id]?.length ?? 0} 个片段</small></header>{loadingEvidenceId === document.id ? <div className="evidence-loading"><LoaderCircle className="spin" size={18} />正在读取索引</div> : evidenceByDocument[document.id]?.length ? <div className="document-chunks">{evidenceByDocument[document.id].map((chunk, index) => <article key={chunk.id}><div><span>片段 {String(index + 1).padStart(2, '0')}</span>{chunk.page ? <small>第 {chunk.page} 页</small> : null}</div><p>{chunk.content}</p></article>)}</div> : <div className="evidence-loading">当前文档没有可展示的文本片段</div>}</div> : null}</div>)}</div> : <div className="library-empty"><BookOpen size={24} /><span>知识库为空</span></div>}
-      </section>
-    </div>
-  );
-}
-
-function HistoryView({ runs, deletingRunId, onOpen, onDelete }: { runs: ResearchRunSummary[]; deletingRunId: string | null; onOpen: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
-  return (
-    <div className="history-layout">
-      <div className="history-summary"><History size={21} /><div><strong>研究记录</strong><span>报告、证据和版本都会保存在当前账户下，随时回看或继续改</span></div></div>
-      {runs.length ? <div className="history-list">{runs.map((run) => (
-        <article className="history-row" key={run.id}>
-          <div className={'run-status ' + run.status}>{run.status === 'completed' ? '已完成' : run.status === 'running' ? '执行中' : '失败'}</div>
-          <div className="history-main"><h2><span className="version-label">V{run.version}</span>{run.title || run.topic}</h2><p>{new Date(run.createdAt).toLocaleString('zh-CN')} · {run.templateName ?? '自由格式'} · {run.aiSource === 'personal' ? '个人 Key' : run.aiSource === 'platform' ? '平台模型' : '本地模式'} · {run.paperCount} 条外部来源 · {run.evidenceCount} 条证据</p>{run.revisionInstruction ? <small>{run.revisionInstruction}</small> : null}{run.error ? <span>{run.error}</span> : null}</div>
-          <div className="history-actions"><button className="button secondary" disabled={run.status !== 'completed' || deletingRunId === run.id} onClick={() => void onOpen(run.id)}>打开<ChevronRight size={15} /></button><button className="icon-button danger" type="button" disabled={deletingRunId === run.id} onClick={() => void onDelete(run.id)} title="删除研究记录" aria-label={'删除 ' + (run.title || run.topic)}>{deletingRunId === run.id ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}</button></div>
-        </article>
-      ))}</div> : <div className="library-empty"><History size={24} /><span>还没有研究记录</span></div>}
-    </div>
-  );
-}
-
-function SettingsView({ templates, onTemplatesChanged, onError, onNotice }: {
-  templates: OutputTemplate[];
-  onTemplatesChanged: () => Promise<void>;
-  onError: (message: string) => void;
-  onNotice: (message: string) => void;
-}) {
-  const [ai, setAi] = useState<AiSettingsSummary | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [baseURL, setBaseURL] = useState(DEFAULT_CHAT_BASE_URL);
-  const [chatModel, setChatModel] = useState(DEFAULT_CHAT_MODEL);
-  const [embeddingApiKey, setEmbeddingApiKey] = useState('');
-  const [embeddingBaseURL, setEmbeddingBaseURL] = useState(DEFAULT_EMBEDDING_BASE_URL);
-  const [embeddingModel, setEmbeddingModel] = useState(DEFAULT_EMBEDDING_MODEL);
-  const [savingAi, setSavingAi] = useState(false);
-  const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
-  const [savingTemplate, setSavingTemplate] = useState(false);
-  const [paperTemplateFile, setPaperTemplateFile] = useState<File | null>(null);
-  const [slidesTemplateFile, setSlidesTemplateFile] = useState<File | null>(null);
-  const [templateNote, setTemplateNote] = useState('');
-  const [analysisMode, setAnalysisMode] = useState<'ai' | 'extracted' | null>(null);
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const paperTemplateInput = useRef<HTMLInputElement>(null);
-  const slidesTemplateInput = useRef<HTMLInputElement>(null);
-  const templateEditor = useRef<HTMLDivElement>(null);
-  const [templateDraft, setTemplateDraft] = useState<{
-    name: string;
-    kind: TemplateKind;
-    description: string;
-    instructions: string;
-    blueprint: TemplateBlueprint;
-  }>({
-    name: '',
-    kind: 'both',
-    description: '',
-    instructions: '',
-    blueprint: defaultTemplateBlueprint('both'),
-  });
-  const [showAdvancedTemplate, setShowAdvancedTemplate] = useState(false);
-
-  const loadAiSettings = useCallback(async () => {
-    try {
-      const response = await fetch('/api/settings/ai', { cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'AI 配置读取失败');
-      setAi(payload.settings);
-      setBaseURL(payload.settings.baseURL);
-      setChatModel(payload.settings.chatModel);
-      setEmbeddingBaseURL(payload.settings.embeddingBaseURL);
-      setEmbeddingModel(payload.settings.embeddingModel);
-    } catch (loadError) {
-      onError(loadError instanceof Error ? loadError.message : 'AI 配置读取失败');
-    }
-  }, [onError]);
-
-  useEffect(() => {
-    void loadAiSettings();
-  }, [loadAiSettings]);
-
-  async function saveAi(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingAi(true);
-    onError('');
-    try {
-      const response = await fetch('/api/settings/ai', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey: apiKey.trim() || undefined,
-          baseURL,
-          chatModel,
-          embeddingApiKey: embeddingApiKey.trim() || undefined,
-          embeddingBaseURL,
-          embeddingModel,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'AI 配置保存失败');
-      setAi(payload.settings);
-      setApiKey('');
-      setEmbeddingApiKey('');
-      const embeddingChanged = ai && (
-        ai.embeddingModel !== payload.settings.embeddingModel
-        || ai.embeddingBaseURL !== payload.settings.embeddingBaseURL
-      );
-      onNotice(embeddingChanged
-        ? 'AI 配置已保存；向量模型已变化，请重新上传旧资料以生成新的语义向量'
-        : '个人 AI 配置已加密保存');
-    } catch (saveError) {
-      onError(saveError instanceof Error ? saveError.message : 'AI 配置保存失败');
-    } finally {
-      setSavingAi(false);
-    }
-  }
-
-  function updateBaseURL(value: string) {
-    setBaseURL(value);
-  }
-
-  function selectEmbeddingMode(mode: 'local' | 'provider') {
-    if (mode === 'local') {
-      setEmbeddingModel('local-hash-v1');
-      return;
-    }
-    if (embeddingModel === 'local-hash-v1' || /jina/i.test(embeddingModel) || /jina\.ai/i.test(embeddingBaseURL)) {
-      setEmbeddingBaseURL(baseURL);
-      setEmbeddingModel(isZhipuBaseUrl(baseURL) ? 'embedding-3' : 'text-embedding-3-small');
-    }
-  }
-
-  async function removeAi() {
-    if (!window.confirm('确认删除个人 API Key 并切换到平台或本地模式？')) return;
-    const response = await fetch('/api/settings/ai', { method: 'DELETE' });
-    const payload = await response.json();
-    if (!response.ok) {
-      onError(payload.error || 'AI 配置删除失败');
-      return;
-    }
-    setAi(payload.settings);
-    setApiKey('');
-    setEmbeddingApiKey('');
-    onNotice('个人 API Key 已删除');
-  }
-
-  async function analyzeTemplate() {
-    if (!paperTemplateFile && !slidesTemplateFile && templateNote.trim().length < 8) {
-      onError('请上传论文模板（Word/PDF）或 PPTX，或填写格式要求。');
-      return;
-    }
-    setAnalyzingTemplate(true);
-    setAnalysisMode(null);
-    onError('');
-    try {
-      const formData = new FormData();
-      if (paperTemplateFile) formData.append('paper', paperTemplateFile);
-      if (slidesTemplateFile) formData.append('slides', slidesTemplateFile);
-      formData.append('note', templateNote);
-      const response = await fetch('/api/templates/analyze', { method: 'POST', body: formData });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || '模板识别失败');
-      setTemplateDraft({
-        name: payload.analysis.name,
-        kind: payload.analysis.kind,
-        description: payload.analysis.description,
-        instructions: payload.analysis.instructions,
-        blueprint: payload.analysis.blueprint ?? defaultTemplateBlueprint(payload.analysis.kind),
-      });
-      setAnalysisMode(payload.analysis.mode);
-      onNotice(payload.analysis.mode === 'ai'
-        ? '已从参考资料中提炼模板规则，请确认后保存'
-        : '已提取参考资料；配置个人 AI Key 后可获得更精炼的规则');
-    } catch (analysisError) {
-      onError(analysisError instanceof Error ? analysisError.message : '模板识别失败');
-    } finally {
-      setAnalyzingTemplate(false);
-    }
-  }
-
-  async function saveTemplate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSavingTemplate(true);
-    onError('');
-    try {
-      const formData = new FormData();
-      formData.append('name', templateDraft.name);
-      formData.append('kind', templateDraft.kind);
-      formData.append('description', templateDraft.description);
-      formData.append('instructions', templateDraft.instructions);
-      formData.append('blueprint', JSON.stringify(templateDraft.blueprint));
-      if (paperTemplateFile) formData.append('paper', paperTemplateFile);
-      if (slidesTemplateFile) formData.append('slides', slidesTemplateFile);
-      const response = await fetch(editingTemplateId ? '/api/templates/' + editingTemplateId : '/api/templates', {
-        method: editingTemplateId ? 'PUT' : 'POST',
-        body: formData,
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || '模板保存失败');
-      const wasEditing = Boolean(editingTemplateId);
-      setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '', blueprint: defaultTemplateBlueprint('both') });
-      setPaperTemplateFile(null);
-      setSlidesTemplateFile(null);
-      setTemplateNote('');
-      setAnalysisMode(null);
-      setEditingTemplateId(null);
-      if (paperTemplateInput.current) paperTemplateInput.current.value = '';
-      if (slidesTemplateInput.current) slidesTemplateInput.current.value = '';
-      await onTemplatesChanged();
-      onNotice(wasEditing ? '模板修改已保存' : '自定义模板已保存并会在后续登录中保留');
-    } catch (saveError) {
-      onError(saveError instanceof Error ? saveError.message : '模板保存失败');
-    } finally {
-      setSavingTemplate(false);
-    }
-  }
-
-  async function removeTemplate(id: string) {
-    if (!window.confirm('确认删除这个自定义模板？')) return;
-    const response = await fetch('/api/templates/' + id, { method: 'DELETE' });
-    const payload = await response.json();
-    if (!response.ok) {
-      onError(payload.error || '模板删除失败');
-      return;
-    }
-    await onTemplatesChanged();
-    onNotice('自定义模板已删除');
-  }
-
-  function editTemplate(template: OutputTemplate) {
-    setTemplateDraft({
-      name: template.isDefault ? template.name + '（自定义）' : template.name,
-      kind: template.kind,
-      description: template.description,
-      instructions: template.instructions,
-      blueprint: template.blueprint ?? defaultTemplateBlueprint(template.kind),
-    });
-    setPaperTemplateFile(null);
-    setSlidesTemplateFile(null);
-    setTemplateNote('');
-    setAnalysisMode(null);
-    setEditingTemplateId(template.isDefault ? null : template.id);
-    if (paperTemplateInput.current) paperTemplateInput.current.value = '';
-    if (slidesTemplateInput.current) slidesTemplateInput.current.value = '';
-    window.requestAnimationFrame(() => templateEditor.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-  }
-
-  function cancelTemplateEdit() {
-    setTemplateDraft({ name: '', kind: 'both', description: '', instructions: '', blueprint: defaultTemplateBlueprint('both') });
-    setPaperTemplateFile(null);
-    setSlidesTemplateFile(null);
-    setTemplateNote('');
-    setAnalysisMode(null);
-    setEditingTemplateId(null);
-    if (paperTemplateInput.current) paperTemplateInput.current.value = '';
-    if (slidesTemplateInput.current) slidesTemplateInput.current.value = '';
-  }
-
-  const customTemplates = templates.filter((template) => !template.isDefault);
-  return <div className="settings-layout">
-    <section className="settings-section">
-      <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{ai && ai.dailyLimit > 0 ? ` · 今日 ${ai.usedToday}/${ai.dailyLimit}` : ''}</span></div></div>
-      <p className="settings-description">对话模型负责检索重排、论文、PPT、复习对话和模板识别；Embedding 服务负责知识库中文语义检索。两者可以使用不同服务商，密钥分别加密保存。</p>
-      <div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'embedding').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(baseURL)?.id === provider.id ? ' active' : '')} key={provider.id} onClick={() => { setBaseURL(provider.baseURL); if (provider.chatModels[0]) setChatModel(provider.chatModels[0]); if (provider.kind === 'both' && embeddingModel !== 'local-hash-v1') { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); } }}>{provider.name}</button>)}</div>
-      <p className="provider-links">{matchProvider(baseURL) ? <><a href={matchProvider(baseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(baseURL)!.name} API Key</a>{matchProvider(baseURL)!.docsUrl ? <> · <a href={matchProvider(baseURL)!.docsUrl} target="_blank" rel="noreferrer">接口说明</a></> : null}</> : <span>填写任意 OpenAI 兼容地址。常用入口：{MODEL_PROVIDERS.map((provider) => <a href={provider.keyUrl} target="_blank" rel="noreferrer" key={provider.id}>{provider.name}</a>)}</span>}</p>
-      <form className="settings-form" onSubmit={saveAi}>
-        <label><span>API Key</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={ai?.hasPersonalKey ? '已加密保存，留空不会修改' : '填写服务商提供的 API Key'} /><small>仅加密保存在你的账户下，不会显示给其他用户。</small></label>
-        <label><span>接口地址</span><input type="url" value={baseURL} onChange={(event) => updateBaseURL(event.target.value)} placeholder="https://open.bigmodel.cn/api/paas/v4" required /><small>{isDeepSeekBaseUrl(baseURL) ? '已识别为 DeepSeek 对话接口；下方可独立配置中文 Embedding。' : 'OpenAI 或其他兼容服务的 API 根地址，必须使用 HTTPS。'}</small></label>
-        <div className="settings-grid">
-          <label><span>对话模型</span><input value={chatModel} onChange={(event) => setChatModel(event.target.value)} placeholder="glm-5.3-flash" required /><small>用于生成论文、PPT 和识别模板，请填写服务商实际支持的模型名。</small></label>
-          <div className="embedding-setting"><span>知识库检索模式</span><div className="segmented-control settings-segmented" aria-label="知识库向量方式"><button type="button" className={embeddingModel !== 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('provider')}>中文语义（推荐）</button><button type="button" className={embeddingModel === 'local-hash-v1' ? 'active' : ''} onClick={() => selectEmbeddingMode('local')}>无向量服务</button></div>{embeddingModel === 'local-hash-v1' ? <small>仅使用严格关键词检索；哈希向量不会单独进入证据池，准确性优先但召回较少。</small> : <small>使用独立 Embedding 接口生成中文语义向量，维度按模型实际返回值存储，换模型后请重新上传资料。</small>}</div>
-        </div>
-        {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'chat').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(embeddingBaseURL)?.id === provider.id ? ' active' : '')} key={'emb-' + provider.id} onClick={() => { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); }}>{provider.name}</button>)}</div><p className="provider-links">{matchProvider(embeddingBaseURL) ? <a href={matchProvider(embeddingBaseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(embeddingBaseURL)!.name} Embedding Key</a> : null}</p><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>{embeddingRequirement(embeddingBaseURL, embeddingModel)}</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
-        <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
-      </form>
-    </section>
-
-    <section className="settings-section">
-      <div className="settings-title"><FileText size={19} /><div><h2>输出模板</h2><span>{templates.filter((template) => template.isDefault).length} 个内置 · {customTemplates.length} 个自定义</span></div></div>
-      <p className="settings-description">可以分别上传论文样式（Word/PDF）和 PPT 样式（PPTX）。系统只提取版式、结构和视觉规则，不会把参考文件的主题内容混进论文。</p>
-      <form className="settings-form template-form" onSubmit={saveTemplate}>
-        <div className="template-source-grid">
-          <input ref={paperTemplateInput} type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden onChange={(event) => { setPaperTemplateFile(event.target.files?.[0] ?? null); setAnalysisMode(null); }} />
-          <input ref={slidesTemplateInput} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden onChange={(event) => { setSlidesTemplateFile(event.target.files?.[0] ?? null); setAnalysisMode(null); }} />
-          <button className={'template-upload ' + (paperTemplateFile ? 'has-file' : '')} type="button" onClick={() => paperTemplateInput.current?.click()}>
-            {paperTemplateFile ? <Check size={20} /> : <FileText size={20} />}
-            <span><strong>{paperTemplateFile ? paperTemplateFile.name : '上传论文模板'}</strong><small>{paperTemplateFile ? formatBytes(paperTemplateFile.size) : 'DOCX 或可搜索 PDF，不限制大小'}</small></span>
-          </button>
-          <button className={'template-upload ' + (slidesTemplateFile ? 'has-file' : '')} type="button" onClick={() => slidesTemplateInput.current?.click()}>
-            {slidesTemplateFile ? <Check size={20} /> : <Presentation size={20} />}
-            <span><strong>{slidesTemplateFile ? slidesTemplateFile.name : '上传 PPT 模板'}</strong><small>{slidesTemplateFile ? formatBytes(slidesTemplateFile.size) : 'PPTX 版式、配色和页结构'}</small></span>
-          </button>
-          <label className="template-note"><span>补充要求</span><textarea value={templateNote} onChange={(event) => { setTemplateNote(event.target.value); setAnalysisMode(null); }} placeholder="例如：正文约 8000 字，三级标题；PPT 按学校模板 18 页，并保留答辩备注。也可以不上传文件，只在这里描述。" maxLength={50000} /></label>
-        </div>
-        <div className="settings-actions analyze-actions"><button type="button" className="button secondary" disabled={analyzingTemplate} onClick={() => void analyzeTemplate()}>{analyzingTemplate ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}{analyzingTemplate ? '正在识别' : '智能提取规则'}</button>{analysisMode ? <span className="analysis-status"><Check size={14} />{analysisMode === 'ai' ? 'AI 已完成提炼' : '已提取原始要求'}</span> : null}</div>
-
-        <div className="template-editor" ref={templateEditor}>
-          <div className="template-identity">
-            <div className="template-identity-copy"><span>模板工作台</span><strong>先定结构，再写要求</strong><small>下面的章节、页面和样式都可以直接编辑，保存后会成为后续任务的生成规则。</small></div>
-            <div className="settings-grid"><label><span>模板名称</span><input value={templateDraft.name} onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })} placeholder="例如：本科毕业论文" required /></label><label><span>适用内容</span><select value={templateDraft.kind} onChange={(event) => { const kind = event.target.value as TemplateKind; setTemplateDraft({ ...templateDraft, kind, blueprint: templateDraft.blueprint.sections.length || templateDraft.blueprint.slides.length ? templateDraft.blueprint : defaultTemplateBlueprint(kind) }); }}><option value="both">论文与 PPT</option><option value="report">仅论文/报告</option><option value="presentation">仅 PPT</option></select></label><label className="template-description-field"><span>用途说明</span><input value={templateDraft.description} onChange={(event) => setTemplateDraft({ ...templateDraft, description: event.target.value })} placeholder="这套模板适合什么任务" /></label></div>
-          </div>
-          <TemplateBlueprintEditor value={templateDraft.blueprint} onChange={(blueprint) => setTemplateDraft((current) => ({ ...current, blueprint, instructions: blueprintToInstructions(blueprint) }))} />
-          <div className="advanced-template">
-            <button type="button" className="advanced-toggle" onClick={() => setShowAdvancedTemplate((current) => !current)}>{showAdvancedTemplate ? <ChevronDown size={15} /> : <ChevronRight size={15} />}高级：查看或编辑完整生成规则</button>
-            {showAdvancedTemplate ? <label><span>完整生成规则</span><textarea value={templateDraft.instructions} onChange={(event) => setTemplateDraft({ ...templateDraft, instructions: event.target.value })} placeholder="结构化编辑器会自动生成规则；也可以在这里补充额外约束。" minLength={8} maxLength={100000} required /></label> : <p>结构化编辑会自动生成规则，通常不需要手动修改文本。</p>}
-          </div>
-        </div>
-        <div className="settings-actions template-save-actions"><button className="button primary" disabled={savingTemplate || !templateDraft.name.trim() || templateDraft.instructions.trim().length < 8}>{savingTemplate ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}{editingTemplateId ? '保存修改' : '保存为模板'}</button>{editingTemplateId ? <button className="button secondary" type="button" onClick={cancelTemplateEdit}>取消编辑</button> : null}<span className="template-rule-count">{templateDraft.blueprint.sections.length} 个章节 · {templateDraft.blueprint.slides.length} 个 PPT 页面</span></div>
-      </form>
-      <div className="template-list">{templates.map((template) => <div className={'template-row ' + (editingTemplateId === template.id ? 'editing' : '')} key={template.id}><div><strong>{template.name}</strong><span>{template.kind === 'both' ? '论文与 PPT' : template.kind === 'report' ? '论文/报告' : 'PPT'}{template.blueprint ? ` · ${template.blueprint.sections.length} 章 / ${template.blueprint.slides.length} 页 PPT` : ''}{template.paperSourceName ? ` · 论文 ${template.paperSourceName}` : ''}{template.slidesSourceName ? ` · PPT ${template.slidesSourceName}` : ''}{template.description ? ` · ${template.description}` : ''}</span></div><div className="template-row-actions">{template.isDefault ? <span className="default-label">内置</span> : null}<button className="icon-button" type="button" onClick={() => editTemplate(template)} title={template.isDefault ? '复制为自定义模板' : '编辑模板'} aria-label={(template.isDefault ? '复制并编辑 ' : '编辑 ') + template.name}><Pencil size={15} /></button>{!template.isDefault ? <button className="icon-button danger" type="button" onClick={() => void removeTemplate(template.id)} title="删除模板" aria-label={'删除 ' + template.name}><Trash2 size={15} /></button> : null}</div></div>)}</div>
-    </section>
-  </div>;
 }

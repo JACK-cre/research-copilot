@@ -64,17 +64,17 @@ export function getPlatformAiRuntimeConfig(): AiRuntimeConfig {
 }
 
 export function getDailyResearchLimit(): number {
-  const parsed = Number(process.env.DAILY_RESEARCH_LIMIT ?? 20);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 20;
+  // Daily task-count quotas are disabled. Keep the helper for configuration
+  // compatibility without enforcing a request limit.
+  return 0;
 }
 
-export function isResearchQuotaUnlimited(source: AiCredentialSource): boolean {
-  return source !== 'platform';
+export function isResearchQuotaUnlimited(_source: AiCredentialSource): boolean {
+  return true;
 }
 
-export function getResearchLimit(source: AiCredentialSource): number {
-  if (isResearchQuotaUnlimited(source)) return 0;
-  return getDailyResearchLimit();
+export function getResearchLimit(_source: AiCredentialSource): number {
+  return 0;
 }
 
 export function getWorkspaceStorageLimitBytes(): number {

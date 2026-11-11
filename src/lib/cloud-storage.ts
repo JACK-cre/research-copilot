@@ -174,3 +174,27 @@ export async function createStoredObjectDownload(
 export function getObjectStorageDriver(): 'local' | 's3' {
   return storageDriver();
 }
+
+export async function uploadTemplateVisualAsset(
+  scope: DataScope,
+  templateId: string,
+  assetId: string,
+  dataUrl: string,
+): Promise<string> {
+  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) throw new Error('模板图片数据格式无效。');
+  const mimeType = match[1];
+  const bytes = Buffer.from(match[2], 'base64');
+  const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/svg+xml' ? 'svg' : 'png';
+  const key = `${scope.workspaceId}/templates/${templateId}/visual/${assetId}.${extension}`;
+  assertWorkspacePath(scope, key);
+  await putObject(key, bytes, mimeType);
+  return key;
+}
+
+export async function getStoredObjectPreviewUrl(scope: DataScope, key: string): Promise<string | null> {
+  assertWorkspacePath(scope, key);
+  if (storageDriver() === 'local') return null;
+  const { client, bucket } = s3Config();
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
+}

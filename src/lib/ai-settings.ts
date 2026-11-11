@@ -8,7 +8,6 @@ import {
   createEmbeddingIdentity,
   getAiAccessMode,
   getPlatformAiRuntimeConfig,
-  getResearchLimit,
 } from '@/lib/platform-config';
 import {
   DEFAULT_CHAT_BASE_URL,
@@ -134,14 +133,6 @@ export async function getAiSettingsSummary(scope: DataScope): Promise<AiSettings
     embedding_model: DEFAULT_EMBEDDING_MODEL,
     embedding_dimensions: active.embeddingDimensions,
   };
-  const limit = getResearchLimit(active.source);
-  const usage = scope.mode === 'cloud' && limit > 0
-    ? await getDatabasePool().query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM research_runs
-       WHERE created_by = $1 AND ai_source = $2 AND created_at >= date_trunc('day', now())`,
-      [scope.userId, active.source],
-    )
-    : undefined;
   return {
     accessMode: getAiAccessMode(),
     activeSource: active.source,
@@ -155,8 +146,6 @@ export async function getAiSettingsSummary(scope: DataScope): Promise<AiSettings
     embeddingBaseURL: fallback.embedding_base_url || fallback.base_url,
     embeddingModel: fallback.embedding_model,
     embeddingDimensions: fallback.embedding_dimensions,
-    dailyLimit: limit,
-    usedToday: Number(usage?.rows[0]?.count ?? 0),
   };
 }
 

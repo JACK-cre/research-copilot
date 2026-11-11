@@ -3,10 +3,40 @@ import { z } from 'zod';
 
 import { apiErrorStatus, requireDataScope } from '@/lib/auth';
 import { readTemplatePayload } from '@/lib/template-form';
-import { deleteOutputTemplate, updateOutputTemplate } from '@/lib/templates';
+import { deleteOutputTemplate, getOutputTemplate, updateOutputTemplate } from '@/lib/templates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const scope = await requireDataScope();
+    const { id } = await params;
+    const template = await getOutputTemplate(scope, id);
+    if (!template) return NextResponse.json({ error: '模板不存在。' }, { status: 404 });
+    const resolvedTemplate = template.blueprint
+      ? {
+        ...template,
+        blueprint: {
+          ...template.blueprint,
+          slides: template.blueprint.slides.map((slide) => ({
+            ...slide,
+            elements: slide.elements?.map((element) => element.imageStoragePath && !element.imageDataUrl
+              ? { ...element, imageDataUrl: undefined }
+              : element),
+          })),
+        },
+      }
+      : template;
+    return NextResponse.json({ template: resolvedTemplate });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '模板读取失败。';
+    return NextResponse.json({ error: message }, { status: apiErrorStatus(error) });
+  }
+}
 
 export async function PUT(
   request: Request,

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { getDatabasePool } from '@/lib/db';
-import { getResearchLimit, getWorkspaceStorageLimitBytes } from '@/lib/platform-config';
+import { getWorkspaceStorageLimitBytes } from '@/lib/platform-config';
 import type {
   AiCredentialSource,
   ArtifactType,
@@ -36,19 +36,6 @@ export async function createResearchRun(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [scope.userId]);
-    const usage = await client.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-       FROM research_runs
-       WHERE created_by = $1 AND ai_source = $2 AND created_at >= date_trunc('day', now())`,
-      [scope.userId, options.aiSource],
-    );
-    const limit = getResearchLimit(options.aiSource);
-    if (limit > 0 && Number(usage.rows[0]?.count ?? 0) >= limit) {
-      const label = options.aiSource === 'platform' ? '平台模型' : options.aiSource === 'personal' ? '个人 Key' : '本地模式';
-      throw new Error(`今天的${label}任务额度已用完（${limit} 次）。`);
-    }
-
     const id = randomUUID();
     await client.query(
       `INSERT INTO research_runs

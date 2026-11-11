@@ -61,14 +61,8 @@ services:
         generateValue: true
       - key: OPENAI_API_KEY
         sync: false
-      - key: DAILY_RESEARCH_LIMIT
-        value: "20"
-      - key: DAILY_BYOK_RESEARCH_LIMIT
-        value: "100"
-      - key: DAILY_LOCAL_RESEARCH_LIMIT
-        value: "50"
       - key: WORKSPACE_STORAGE_LIMIT_MB
-        value: "2048"
+        value: "4096"
 
 databases:
   - name: research-copilot-db

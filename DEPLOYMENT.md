@@ -65,10 +65,7 @@ EMBEDDING_BASE_URL=https://api.openai.com/v1
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=512
 
-DAILY_RESEARCH_LIMIT=20
-DAILY_BYOK_RESEARCH_LIMIT=100
-DAILY_LOCAL_RESEARCH_LIMIT=50
-WORKSPACE_STORAGE_LIMIT_MB=2048
+WORKSPACE_STORAGE_LIMIT_MB=4096
 ```
 
 可以用以下命令生成随机密钥：
@@ -84,10 +81,11 @@ openssl rand -base64 48
 在仓库根目录执行：
 
 ```bash
+# 日常更新使用 deploy/update.sh；首次在性能足够的构建机上生成镜像。
 docker compose \
   -f deploy/compose.production.yml \
   --env-file .env.production \
-  up --build -d
+  up -d
 ```
 
 应用容器每次启动都会运行 `scripts/migrate.mjs`，按文件名顺序执行 `database/migrations/` 中尚未运行的迁移。迁移成功后才会启动 Next.js。
@@ -188,7 +186,7 @@ Bucket 必须保持私有。应用上传后只保存对象 Key，下载时生成
 
 个人 Key 使用 AES-256-GCM 加密，永远不会返回浏览器。生产环境中的用户 Base URL 只允许公网 HTTPS 地址。
 
-建议公开站点先使用 `byok` 或较低的平台额度，确认真实使用量后再提高。
+当前不限制研究任务次数；平台 Key 模式仍建议监控实际调用量。
 
 ## 九、日志和监控
 
@@ -259,7 +257,7 @@ curl -fsS http://127.0.0.1/api/health
 
 ```bash
 docker compose -f deploy/compose.production.yml --env-file .env.production build --pull never app
-docker compose -f deploy/compose.production.yml --env-file .env.production up -d --no-deps --pull never app
+docker compose -f deploy/compose.production.yml --env-file .env.production up -d --no-deps --pull never app worker
 ```
 
 发布前记录当前 Git 提交。回滚时下载上一版镜像或切换到上一个已验证提交后重新发布 Actions。数据库迁移默认只向前执行，因此破坏性数据库变更需要单独设计回滚脚本。
@@ -289,3 +287,80 @@ docker compose -f deploy/compose.production.yml --env-file .env.production up -d
 - PostgreSQL 和对象存储没有开放公共读写
 - 日志中没有密码、个人 API Key 或数据库连接串
 - 数据库和文件备份完成过实际恢复验证
+
+## 自动备份与恢复
+
+仓库提供：
+
+- `scripts/backup.sh`：备份 PostgreSQL、`/app/data` 和 `.env.production`
+- `scripts/restore.sh`：恢复数据库和上传文件
+- `deploy/research-copilot-backup.service`
+- `deploy/research-copilot-backup.timer`
+
+在服务器安装每日备份：
+
+```bash
+sudo cp deploy/research-copilot-backup.service /etc/systemd/system/
+sudo cp deploy/research-copilot-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now research-copilot-backup.timer
+systemctl list-timers | grep research-copilot
+```
+
+手动验证一次：
+
+```bash
+cd /opt/apps/research-copilot
+sudo bash scripts/backup.sh
+ls -lh backups/
+```
+
+备份默认保留 14 天，可以通过 `RETENTION_DAYS=30` 调整。
+`env-*.backup` 包含密钥，必须限制文件权限并放到加密或受控的备份存储中。
+
+恢复前会要求输入 `RESTORE` 确认，执行：
+
+```bash
+cd /opt/apps/research-copilot
+sudo bash scripts/restore.sh backups/research-YYYYMMDD-HHMMSS.dump backups/data-YYYYMMDD-HHMMSS.tar.gz
+```
+
+
+## 后台任务与监控
+
+生产环境包含三个应用进程：
+
+- `app`：Next.js Web 和 API
+- `worker`：知识库文件解析、OCR、Embedding
+- `research-worker`：论文/PPT 研究任务和版本修订
+
+查看全部状态：
+
+```bash
+cd /opt/apps/research-copilot
+docker compose -f deploy/compose.production.yml --env-file .env.production ps
+```
+
+查看各 worker 日志：
+
+```bash
+docker compose -f deploy/compose.production.yml --env-file .env.production logs -f worker
+docker compose -f deploy/compose.production.yml --env-file .env.production logs -f research-worker
+```
+
+健康检查与日志摘要：
+
+```bash
+bash scripts/monitor.sh
+```
+
+或单独检查：
+
+```bash
+curl -sS http://127.0.0.1/api/health
+```
+
+返回中的 `queue` 包含知识库队列和研究队列状态。
+`degraded: true` 表示有任务正在执行，但对应 worker 心跳超过 2 分钟未更新，应检查 worker 日志。
+
+结构化日志采用单行 JSON，包含 `requestId`、`runId`、`jobId`、`userId`、`workspaceId`，可直接用 `docker logs` 或日志服务检索。

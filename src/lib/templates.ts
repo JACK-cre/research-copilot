@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { removeStoredObjects, uploadTemplateFile } from '@/lib/cloud-storage';
+import { removeStoredObjects, uploadTemplateFile, uploadTemplateVisualAsset } from '@/lib/cloud-storage';
 import { getDatabasePool } from '@/lib/db';
 import type {
   DataScope,
@@ -121,12 +121,29 @@ const TEMPLATE_COLUMNS = `id, name, kind, description, school, citation_style, i
 
 export async function listOutputTemplates(scope: DataScope): Promise<OutputTemplate[]> {
   if (scope.mode === 'legacy') return DEFAULT_OUTPUT_TEMPLATES;
+  // The list endpoint only needs metadata. Large visual blueprints are loaded
+  // when a template is opened for editing or selected for generation.
   const result = await getDatabasePool().query<TemplateRow>(
-    `SELECT ${TEMPLATE_COLUMNS}
+    `SELECT id, name, kind, description, school, citation_style, instructions,
+            COALESCE(paper_source_name, '') AS paper_source_name,
+            COALESCE(paper_storage_path, '') AS paper_storage_path,
+            COALESCE(slides_source_name, '') AS slides_source_name,
+            COALESCE(slides_storage_path, '') AS slides_storage_path,
+            NULL::jsonb AS blueprint, created_at
      FROM output_templates WHERE workspace_id = $1 ORDER BY created_at DESC`,
     [scope.workspaceId],
   );
   return [...DEFAULT_OUTPUT_TEMPLATES, ...result.rows.map(mapTemplate)];
+}
+
+export async function getOutputTemplate(scope: DataScope, id: string): Promise<OutputTemplate | null> {
+  if (scope.mode === 'legacy') return DEFAULT_OUTPUT_TEMPLATES.find((template) => template.id === id) ?? null;
+  const result = await getDatabasePool().query<TemplateRow>(
+    `SELECT ${TEMPLATE_COLUMNS}
+     FROM output_templates WHERE id = $1 AND workspace_id = $2`,
+    [id, scope.workspaceId],
+  );
+  return result.rows[0] ? mapTemplate(result.rows[0]) : null;
 }
 
 export async function resolveOutputTemplate(
@@ -176,6 +193,33 @@ async function storeTemplateFiles(
   return { paperName, paperPath, slidesName, slidesPath };
 }
 
+async function persistBlueprintImages(
+  scope: DataScope,
+  templateId: string,
+  blueprint?: TemplateBlueprint,
+): Promise<TemplateBlueprint | undefined> {
+  if (!blueprint) return undefined;
+  const slides = [];
+  for (const slide of blueprint.slides) {
+    const elements = [];
+    for (const element of slide.elements ?? []) {
+      if (element.type !== 'image' || !element.imageDataUrl || element.imageStoragePath) {
+        elements.push(element);
+        continue;
+      }
+      try {
+        const imageStoragePath = await uploadTemplateVisualAsset(scope, templateId, element.id, element.imageDataUrl);
+        elements.push({ ...element, imageStoragePath, imageDataUrl: undefined });
+      } catch (error) {
+        console.warn('Template image could not be moved to object storage; keeping inline fallback.', error);
+        elements.push(element);
+      }
+    }
+    slides.push({ ...slide, elements });
+  }
+  return { ...blueprint, slides };
+}
+
 export async function createOutputTemplate(scope: DataScope, input: {
   name: string;
   kind: TemplateKind;
@@ -190,6 +234,7 @@ export async function createOutputTemplate(scope: DataScope, input: {
   if (scope.mode !== 'cloud') throw new Error('自定义模板仅在私有云模式可用。');
   const id = randomUUID();
   const stored = await storeTemplateFiles(scope, id, { paper: input.paperFile, slides: input.slidesFile });
+  const blueprint = await persistBlueprintImages(scope, id, input.blueprint);
   const result = await getDatabasePool().query<TemplateRow>(
     `INSERT INTO output_templates
        (id, workspace_id, created_by, name, kind, description, school, citation_style, instructions,
@@ -210,7 +255,7 @@ export async function createOutputTemplate(scope: DataScope, input: {
       stored.paperPath,
       stored.slidesName,
       stored.slidesPath,
-      input.blueprint ? JSON.stringify(input.blueprint) : null,
+      blueprint ? JSON.stringify(blueprint) : null,
     ],
   );
   return mapTemplate(result.rows[0]);
@@ -233,6 +278,7 @@ export async function updateOutputTemplate(scope: DataScope, id: string, input: 
   );
   if (!existing.rows[0]) return null;
   const stored = await storeTemplateFiles(scope, id, { paper: input.paperFile, slides: input.slidesFile }, existing.rows[0]);
+  const blueprint = await persistBlueprintImages(scope, id, input.blueprint);
   const result = await getDatabasePool().query<TemplateRow>(
     `UPDATE output_templates
      SET name = $1, kind = $2, description = $3, instructions = $4,
@@ -249,8 +295,8 @@ export async function updateOutputTemplate(scope: DataScope, id: string, input: 
       stored.paperPath,
       stored.slidesName,
       stored.slidesPath,
-      input.blueprint ? JSON.stringify(input.blueprint) : null,
-      input.citationStyle ?? input.blueprint?.style.citationStyle ?? '按模板规则',
+      blueprint ? JSON.stringify(blueprint) : null,
+      input.citationStyle ?? blueprint?.style.citationStyle ?? '按模板规则',
       id,
       scope.workspaceId,
       scope.userId,

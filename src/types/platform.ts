@@ -30,8 +30,6 @@ export interface AiSettingsSummary {
   embeddingBaseURL: string;
   embeddingModel: string;
   embeddingDimensions: number;
-  dailyLimit: number;
-  usedToday: number;
 }
 
 export type TemplateKind = 'report' | 'presentation' | 'both';
@@ -42,16 +40,49 @@ export interface TemplateSectionBlueprint {
   purpose: string;
 }
 
+export type TemplateSlideElementType = 'text' | 'image' | 'shape';
+
+export interface TemplateSlideElement {
+  id: string;
+  type: TemplateSlideElementType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text?: string;
+  fill?: string;
+  stroke?: string;
+  color?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: 'normal' | 'bold';
+  align?: 'left' | 'center' | 'right';
+  shape?: 'rect' | 'roundRect' | 'ellipse' | 'line' | 'triangle' | 'other';
+  imageDataUrl?: string;
+  imageStoragePath?: string;
+  zIndex: number;
+}
+
 export interface TemplateSlideBlueprint {
   id: string;
   title: string;
   purpose: string;
   layout: 'title' | 'thesis' | 'landscape' | 'comparison' | 'evidence' | 'roadmap' | 'conclusion';
+  background?: string;
+  elements?: TemplateSlideElement[];
+  source?: 'uploaded-pptx' | 'generated';
+}
+
+export interface DocumentPagePreview {
+  index: number;
+  title: string;
+  text: string;
 }
 
 export interface TemplateBlueprint {
   sections: TemplateSectionBlueprint[];
   slides: TemplateSlideBlueprint[];
+  documentPages?: DocumentPagePreview[];
   style: {
     citationStyle: string;
     headingScheme: 'numeric' | 'chinese' | 'plain';
@@ -60,6 +91,8 @@ export interface TemplateBlueprint {
     tone: string;
     accentColor: string;
     fontFamily: string;
+    slideWidth?: number;
+    slideHeight?: number;
   };
 }
 

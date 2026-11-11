@@ -1,0 +1,12 @@
+[Unit]
+Description=Research Copilot database and data backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/apps/research-copilot
+ExecStart=/usr/bin/env bash /opt/apps/research-copilot/scripts/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

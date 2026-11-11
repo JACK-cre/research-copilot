@@ -39,7 +39,7 @@ else
   rm -f "$FILE"
 fi
 
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --pull never --no-build app
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --no-deps --pull never --no-build app worker research-worker
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
 curl -sS http://127.0.0.1/api/health || true
 echo

@@ -12,3 +12,4 @@ data/library.json
 data/uploads
 data/files
 *.tsbuildinfo
+worker-dist
