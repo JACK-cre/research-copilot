@@ -1,4 +1,4 @@
-import { createChatJsonCompletion, createChatTextCompletion, createChatVisionCompletion, isVisionChatModel } from '@/lib/chat-client';
+import { createChatJsonCompletion, createChatTextCompletion, createChatVisionCompletion, isVisionChatModel, streamChatTextCompletion } from '@/lib/chat-client';
 import { buildChatMemoryPreamble, formatMemoryTranscript, splitConversationMemory } from '@/lib/conversation-memory';
 import { normalizeStudyAction } from '@/lib/generated-output';
 import { callResearchTool } from '@/mcp/client';
@@ -169,6 +169,33 @@ async function runFreeChatTurn(input: {
     temperature: 0.7,
   });
   return { content, citations: [], toolTrace: [] };
+}
+
+
+export async function* streamStudyAnswer(input: {
+  ai: AiRuntimeConfig;
+  message: string;
+  history: StudyMessage[];
+  memorySummary?: string;
+}): AsyncGenerator<string> {
+  const { recent } = splitConversationMemory(input.history);
+  const preamble = buildChatMemoryPreamble(input.memorySummary ?? '');
+  const system = [
+    '你是 Research Copilot 的日常对话助手。',
+    '用自然、简洁的中文回答，除非用户要求其他语言。',
+    '不要检索知识库或互联网，也不要假装查过资料。',
+    '不要编造参考文献、链接、论文编号或数据。',
+    '可以闲聊、解释概念、改写句子、给学习建议；不确定就直说。',
+    preamble,
+  ].filter(Boolean).join('\n');
+  const history = recent.map((item) => ({ role: item.role, content: formatHistoryContent(item) }));
+  yield* streamChatTextCompletion({
+    ai: input.ai,
+    system,
+    messages: [...history, { role: 'user', content: input.message }],
+    temperature: 0.7,
+    maxTokens: 4096,
+  });
 }
 
 export async function runStudyTurn(input: {

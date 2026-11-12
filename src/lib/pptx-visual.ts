@@ -60,7 +60,9 @@ function textFromShape(xml: string): string {
 }
 
 function fillFromShape(xml: string): string | undefined {
-  const solid = xml.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/)?.[1];
+  const shapeProperties = xml.match(/<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/)?.[1] ?? '';
+  if (/<a:noFill\s*\/>/i.test(shapeProperties)) return undefined;
+  const solid = shapeProperties.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/)?.[1];
   return solid ? colorFrom(solid) : undefined;
 }
 
@@ -71,8 +73,10 @@ function opacityFrom(xml: string): number | undefined {
 }
 
 function strokeFromShape(xml: string): string | undefined {
-  const line = xml.match(/<a:ln\b[^>]*>([\s\S]*?)<\/a:ln>/)?.[1];
-  return line ? colorFrom(line) : undefined;
+  const shapeProperties = xml.match(/<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/)?.[1] ?? '';
+  const line = shapeProperties.match(/<a:ln\b[^>]*>([\s\S]*?)<\/a:ln>/)?.[1];
+  if (!line || /<a:noFill\s*\/>/i.test(line)) return undefined;
+  return colorFrom(line);
 }
 
 function shapeKind(xml: string): TemplateSlideElement['shape'] {
@@ -160,13 +164,21 @@ async function compactImage(bytes: Uint8Array, path: string): Promise<{ dataUrl:
     return { dataUrl: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`, bytes: bytes.byteLength };
   }
   try {
-    const output = await sharp(bytes, { animated: false })
+    const metadata = await sharp(bytes, { animated: false }).metadata();
+    const hasAlpha = Boolean(metadata.hasAlpha);
+    const pipeline = sharp(bytes, { animated: false })
       .rotate()
-      .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 72, mozjpeg: true })
-      .toBuffer();
+      .resize({ width: MAX_IMAGE_EDGE, height: MAX_IMAGE_EDGE, fit: 'inside', withoutEnlargement: true });
+    const output = hasAlpha
+      ? await pipeline.png({ compressionLevel: 9, palette: true }).toBuffer()
+      : await pipeline.jpeg({ quality: 72, mozjpeg: true }).toBuffer();
     if (output.byteLength > MAX_IMAGE_BYTES) return null;
-    return { dataUrl: `data:image/jpeg;base64,${output.toString('base64')}`, bytes: output.byteLength };
+    return {
+      dataUrl: hasAlpha
+        ? `data:image/png;base64,${output.toString('base64')}`
+        : `data:image/jpeg;base64,${output.toString('base64')}`,
+      bytes: output.byteLength,
+    };
   } catch {
     if (bytes.byteLength > MAX_IMAGE_BYTES) return null;
     return { dataUrl: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`, bytes: bytes.byteLength };
@@ -251,7 +263,9 @@ export async function extractPptxVisualTemplate(bytes: Uint8Array): Promise<Pptx
       const y = Math.max(-50, Math.min(height + 50, yEmu / heightEmu * height));
       const shapeWidth = Math.max(0.5, Math.min(width + 100, widthEmuShape / widthEmu * width));
       const shapeHeight = Math.max(0.5, Math.min(height + 100, heightEmuShape / heightEmu * height));
-      if (fill || shape || text) {
+      const stroke = strokeFromShape(shapeXml);
+      const visibleShape = Boolean(fill || stroke);
+      if (text || visibleShape) {
         const duplicate = elements.some((existing) =>
           existing.type === (text ? 'text' : 'shape')
           && Math.abs(existing.x - x) < 1

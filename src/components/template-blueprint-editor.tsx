@@ -1,6 +1,7 @@
 'use client';
 
-import { ArrowDown, ArrowUp, FileText, GripVertical, Plus, Presentation, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, FileText, GripVertical, Plus, Presentation, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { PptxSlideCanvas } from '@/components/pptx-slide-canvas';
 import { DocumentPagePreviewPanel } from '@/components/document-page-preview';
 
@@ -41,6 +42,7 @@ export function TemplateBlueprintEditor({
   onChange: (value: TemplateBlueprint) => void;
   templateId?: string;
 }) {
+  const [showStructure, setShowStructure] = useState(false);
   function updateSection(index: number, patch: Partial<TemplateSectionBlueprint>) {
     onChange({
       ...value,
@@ -74,9 +76,18 @@ export function TemplateBlueprintEditor({
           slideWidth={value.style.slideWidth}
           slideHeight={value.style.slideHeight}
         />
+        {value.slides.length ? <div className="template-page-roles">{value.slides.map((slide, index) => <span key={slide.id}><b>{index + 1}</b>{slide.layout === 'title' ? '封面' : slide.layout === 'thesis' ? '核心观点' : slide.layout === 'comparison' ? '对比' : slide.layout === 'evidence' ? '证据' : slide.layout === 'roadmap' ? '路线图' : slide.layout === 'conclusion' ? '结论' : '内容页'}</span>)}</div> : null}
       </section> : null}
       {value.documentPages?.length ? <DocumentPagePreviewPanel pages={value.documentPages} /> : null}
-      <section className="blueprint-panel">
+      <button type="button" className="structure-toggle" onClick={() => setShowStructure((current) => !current)}>{showStructure ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<span>编辑结构与页面顺序</span><small>默认不展开，模板预览才是主要内容</small></button>
+      {showStructure && value.documentPages?.length && !value.sections.length ? <section className="blueprint-panel">
+        <header className="blueprint-heading">
+          <div><span className="blueprint-icon"><FileText size={17} /></span><div><strong>论文 / 报告结构</strong><small>AI 将从版式中归纳章节层级；需要手动调整时也可以添加</small></div></div>
+          <button type="button" className="blueprint-add" onClick={() => onChange({ ...value, sections: [{ id: nextId('section'), title: '新章节', purpose: '说明这一章要回答的问题' }] })}><Plus size={14} />添加章节</button>
+        </header>
+        <div className="blueprint-empty">未从模板中提取到可靠的章节标题。可以补充说明，或手动添加章节。</div>
+      </section> : null}
+      {showStructure && value.sections.length ? <section className="blueprint-panel">
         <header className="blueprint-heading">
           <div><span className="blueprint-icon"><FileText size={17} /></span><div><strong>论文 / 报告结构</strong><small>使用上下箭头调整顺序，生成时会按这里的章节组织内容</small></div></div>
           <button type="button" className="blueprint-add" onClick={() => onChange({ ...value, sections: [...value.sections, { id: nextId('section'), title: '新章节', purpose: '说明这一章要回答的问题' }] })}><Plus size={14} />添加章节</button>
@@ -94,10 +105,10 @@ export function TemplateBlueprintEditor({
               <button type="button" className="danger" onClick={() => onChange({ ...value, sections: value.sections.filter((_, current) => current !== index) })} aria-label="删除章节"><Trash2 size={14} /></button>
             </div>
           </article>)}
-        </div> : <div className="blueprint-empty">当前模板只生成 PPT。需要论文结构时添加章节即可。</div>}
-      </section>
+        </div> : null}
+      </section> : null}
 
-      {!value.slides.some((slide) => slide.elements?.length) ? <section className="blueprint-panel">
+      {showStructure && !value.slides.some((slide) => slide.elements?.length) ? <section className="blueprint-panel">
         <header className="blueprint-heading">
           <div><span className="blueprint-icon coral"><Presentation size={17} /></span><div><strong>PPT 页面结构</strong><small>页面类型决定版式，标题和目的决定这一页讲什么</small></div></div>
           <button type="button" className="blueprint-add" onClick={() => onChange({ ...value, slides: [...value.slides, { id: nextId('slide'), title: '新页面', purpose: '一页只表达一个中心观点', layout: 'landscape' }] })}><Plus size={14} />添加页面</button>
@@ -119,16 +130,42 @@ export function TemplateBlueprintEditor({
       </section> : null}
 
       <section className="blueprint-panel style-panel">
-        <header className="blueprint-heading"><div><span className="blueprint-icon gold"><SparkleIcon /></span><div><strong>版式与输出规则</strong><small>这些规则会直接进入生成提示词</small></div></div></header>
-        <div className="blueprint-style-grid">
-          <label><span>引用格式</span><input value={value.style.citationStyle} onChange={(event) => onChange({ ...value, style: { ...value.style, citationStyle: event.target.value } })} placeholder="例如：作者-年份，正文标证据编号" /></label>
-          <label><span>标题层级</span><select value={value.style.headingScheme} onChange={(event) => onChange({ ...value, style: { ...value.style, headingScheme: event.target.value as TemplateBlueprint['style']['headingScheme'] } })}><option value="numeric">1 / 1.1 / 1.1.1</option><option value="chinese">一 / （一） / 1.</option><option value="plain">不强制编号</option></select></label>
-          <label><span>报告目标字数</span><input type="number" min={100} max={200000} value={value.style.reportWords ?? ''} onChange={(event) => onChange({ ...value, style: { ...value.style, reportWords: event.target.value ? Number(event.target.value) : undefined } })} placeholder="例如 8000" /></label>
-          <label><span>PPT 目标页数</span><input type="number" min={1} max={64} value={value.style.slideCount ?? ''} onChange={(event) => onChange({ ...value, style: { ...value.style, slideCount: event.target.value ? Number(event.target.value) : undefined } })} placeholder="例如 12" /></label>
-          <label><span>表达语气</span><input value={value.style.tone} onChange={(event) => onChange({ ...value, style: { ...value.style, tone: event.target.value } })} placeholder="清晰、严谨、可执行" /></label>
-          <label><span>字体</span><input value={value.style.fontFamily} onChange={(event) => onChange({ ...value, style: { ...value.style, fontFamily: event.target.value } })} placeholder="系统默认 / 思源黑体" /></label>
-          <label className="color-field"><span>主色</span><div><input type="color" value={value.style.accentColor} onChange={(event) => onChange({ ...value, style: { ...value.style, accentColor: event.target.value } })} /><input value={value.style.accentColor} onChange={(event) => onChange({ ...value, style: { ...value.style, accentColor: event.target.value } })} /></div></label>
+        <header className="blueprint-heading"><div><span className="blueprint-icon gold"><SparkleIcon /></span><div><strong>内容偏好</strong><small>用直观选项描述你希望生成成什么样，详细要求可以写在下方的补充说明里</small></div></div></header>
+        <div className="template-preference-grid">
+          <div className="preference-card">
+            <span>内容详略</span>
+            <div className="preference-options">
+              {[
+                ['简洁', 3000, 8],
+                ['适中', 6000, 12],
+                ['详细', 10000, 18],
+                ['完整', 16000, 24],
+              ].map(([label, words, slides]) => {
+                const active = (value.style.reportWords ?? 0) === words || (value.style.slideCount ?? 0) === slides;
+                return <button type="button" className={active ? 'active' : ''} key={String(label)} onClick={() => onChange({ ...value, style: { ...value.style, reportWords: Number(words), slideCount: Number(slides) } })}>{label}</button>;
+              })}
+            </div>
+          </div>
+          <div className="preference-card">
+            <span>表达风格</span>
+            <div className="preference-options">
+              {['学术严谨', '清晰务实', '简洁直接', '生动易懂'].map((tone) => <button type="button" className={value.style.tone === tone ? 'active' : ''} key={tone} onClick={() => onChange({ ...value, style: { ...value.style, tone } })}>{tone}</button>)}
+            </div>
+          </div>
+          <div className="preference-card">
+            <span>引用呈现</span>
+            <div className="preference-options">
+              {['正文编号', '作者-年份', '脚注式说明', '按上传模板'].map((citationStyle) => <button type="button" className={value.style.citationStyle === citationStyle ? 'active' : ''} key={citationStyle} onClick={() => onChange({ ...value, style: { ...value.style, citationStyle } })}>{citationStyle}</button>)}
+            </div>
+          </div>
+          <div className="preference-card">
+            <span>主色氛围</span>
+            <div className="color-swatches">
+              {['#0F766E', '#1F4E79', '#7C3AED', '#C45D40', '#475569'].map((accentColor) => <button type="button" aria-label={'选择主色 ' + accentColor} className={value.style.accentColor.toLowerCase() === accentColor.toLowerCase() ? 'active' : ''} style={{ background: accentColor }} key={accentColor} onClick={() => onChange({ ...value, style: { ...value.style, accentColor } })} />)}
+            </div>
+          </div>
         </div>
+        <label className="template-preference-note"><span>补充说明（可选）</span><textarea value={value.style.notes ?? ''} onChange={(event) => onChange({ ...value, style: { ...value.style, notes: event.target.value } })} placeholder="例如：每页保留讲稿备注；正文不要太多小标题；论文最后列出参考文献。" /></label>
       </section>
     </div>
   );

@@ -30,6 +30,13 @@ function attachmentSrc(conversationId: string, storagePath: string): string {
   return `/api/study/${conversationId}/files?path=${encodeURIComponent(storagePath)}`;
 }
 
+function renderMessageContent(content: string) {
+  return content.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => {
+    const lines = paragraph.split('\n');
+    return <p key={index}>{lines.map((line, lineIndex) => <span key={lineIndex}>{line}{lineIndex < lines.length - 1 ? <br /> : null}</span>)}</p>;
+  });
+}
+
 export function StudyChat({
   onError,
   onNotice,
@@ -40,6 +47,8 @@ export function StudyChat({
   const [conversations, setConversations] = useState<StudyConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [messages, setMessages] = useState<StudyMessage[]>([]);
+  const [optimisticUser, setOptimisticUser] = useState<StudyMessage | null>(null);
+  const [streamingText, setStreamingText] = useState('');
   const [memorySummary, setMemorySummary] = useState('');
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingImage[]>([]);
@@ -150,7 +159,57 @@ export function StudyChat({
     setDraft('');
     setSending(true);
     onError('');
+    setOptimisticUser({
+      id: 'optimistic-' + Date.now(),
+      role: 'user',
+      content: message || (files.length ? `已添加 ${files.length} 张图片` : ''),
+      citations: [],
+      toolTrace: [],
+      attachments: [],
+      createdAt: new Date().toISOString(),
+    });
     try {
+      if (freeChat && !files.length) {
+        setStreamingText('');
+        const response = await fetch('/api/study/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId, message }),
+        });
+        if (!response.ok || !response.body) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || '流式回答失败');
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let donePayload: any = null;
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split('\n\n');
+          buffer = events.pop() ?? '';
+          for (const event of events) {
+            const dataLine = event.split('\n').find((line) => line.startsWith('data: '));
+            if (!dataLine) continue;
+            const data = JSON.parse(dataLine.slice(6));
+            if (data.type === 'delta') setStreamingText((current) => current + data.text);
+            else if (data.type === 'error') throw new Error(data.error);
+            else if (data.type === 'done') donePayload = data;
+          }
+        }
+        if (!donePayload) throw new Error('流式回答没有正常结束');
+        setConversationId(donePayload.conversationId);
+        setMessages(donePayload.messages ?? []);
+        setMemorySummary(donePayload.memorySummary ?? '');
+        setStreamingText('');
+        setOptimisticUser(null);
+        window.localStorage.setItem(STORAGE_KEY, donePayload.conversationId);
+        clearPending(pending);
+        await loadConversations();
+        return;
+      }
       const form = new FormData();
       if (conversationId) form.append('conversationId', conversationId);
       form.append('message', message);
@@ -161,6 +220,7 @@ export function StudyChat({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '发送失败');
       setConversationId(payload.conversationId);
+      setOptimisticUser(null);
       setMessages(payload.messages ?? []);
       setMemorySummary(payload.memorySummary ?? '');
       window.localStorage.setItem(STORAGE_KEY, payload.conversationId);
@@ -169,6 +229,8 @@ export function StudyChat({
     } catch (error) {
       onError(error instanceof Error ? error.message : '发送失败');
       setDraft(message);
+      setOptimisticUser(null);
+      setStreamingText('');
     } finally {
       setSending(false);
     }
@@ -235,6 +297,10 @@ export function StudyChat({
         </div>
         <div className="study-thread" ref={listRef}>
           {memorySummary ? <div className="study-memory">更早的对话已压缩为记忆，本页仍显示完整记录。模型下次只会看到摘要和最近 4 轮原文。</div> : null}
+          {optimisticUser ? <article className={'study-bubble ' + optimisticUser.role} key={optimisticUser.id}>
+            <strong>你</strong>
+            <p>{optimisticUser.content}</p>
+          </article> : null}
           {messages.length ? messages.map((item) => (
             <article className={'study-bubble ' + item.role} key={item.id}>
               <strong>{item.role === 'user' ? '你' : item.toolTrace?.length ? '复习助手' : '助手'}</strong>
@@ -247,7 +313,7 @@ export function StudyChat({
                   ))}
                 </div>
               ) : null}
-              <p>{item.content}</p>
+              <div className="study-message-content">{renderMessageContent(item.content)}</div>
               {item.toolTrace?.length ? <div className="tool-chip-row">{item.toolTrace.map((trace, index) => <span key={item.id + trace.name + index}>{trace.name} · {trace.summary}</span>)}</div> : null}
               {item.citations?.length ? <div className="study-cites">{item.citations.map((citation) => citation.url ? <a key={citation.id} href={citation.url} target="_blank" rel="noreferrer">{citation.id} {citation.title}</a> : <span key={citation.id}>{citation.id} {citation.title}</span>)}</div> : null}
             </article>
@@ -259,7 +325,8 @@ export function StudyChat({
                 : '可以问讲义里的概念、让它抽背、解释一段材料或图片，或结合公开论文做对比。助手会先调 MCP 工具检索，再回答。'}</p>
             </div>
           )}
-          {sending ? <div className="study-bubble assistant pending"><LoaderCircle className="spin" size={16} />{freeChat ? '正在思考' : '正在检索并作答'}</div> : null}
+          {streamingText ? <article className="study-bubble assistant streaming"><strong>助手</strong><div className="study-message-content">{renderMessageContent(streamingText)}</div></article> : null}
+          {sending && !streamingText ? <div className="study-bubble assistant pending"><LoaderCircle className="spin" size={16} />{freeChat ? '正在思考' : '正在检索并作答'}</div> : null}
         </div>
         <form
           className={'study-composer' + (dragging ? ' dragging' : '')}

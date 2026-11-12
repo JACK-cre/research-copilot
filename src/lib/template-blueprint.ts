@@ -36,6 +36,9 @@ const documentPageSchema = z.object({
   index: z.number().int().min(1).max(200),
   title: z.string().max(200),
   text: z.string().max(5000),
+  html: z.string().max(120_000).optional(),
+  imageDataUrl: z.string().max(1_300_000).optional(),
+  imageStoragePath: z.string().max(1000).optional(),
 });
 
 const slideSchema = z.object({
@@ -62,6 +65,7 @@ export const templateBlueprintSchema = z.object({
     fontFamily: z.string().trim().max(200).default('系统默认'),
     slideWidth: z.number().min(1).max(3000).optional(),
     slideHeight: z.number().min(1).max(3000).optional(),
+    notes: z.string().max(10_000).optional(),
   }).default({
     citationStyle: '按模板规则',
     headingScheme: 'numeric',
@@ -145,7 +149,7 @@ export function blueprintToInstructions(blueprint: TemplateBlueprint, extra = ''
     blueprint.style.slideCount ? `PPT 目标页数：约 ${blueprint.style.slideCount} 页` : '',
     `表达语气：${blueprint.style.tone}`,
     `主色：${blueprint.style.accentColor}`,
-    `字体：${blueprint.style.fontFamily}`,
+    blueprint.style.notes ? `补充要求：${blueprint.style.notes}` : '',
     extra.trim() ? `\n【补充要求】\n${extra.trim()}` : '',
   ].filter(Boolean);
   return lines.join('\n').trim();

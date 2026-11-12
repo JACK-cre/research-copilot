@@ -80,6 +80,9 @@ export interface DocumentPagePreview {
   index: number;
   title: string;
   text: string;
+  html?: string;
+  imageDataUrl?: string;
+  imageStoragePath?: string;
 }
 
 export interface TemplateBlueprint {
@@ -96,6 +99,7 @@ export interface TemplateBlueprint {
     fontFamily: string;
     slideWidth?: number;
     slideHeight?: number;
+    notes?: string;
   };
 }
 

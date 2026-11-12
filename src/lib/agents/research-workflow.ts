@@ -44,6 +44,7 @@ interface ResearchGraphState {
   revisionCount: number;
   trace: AgentTraceStep[];
   usedModel: boolean;
+  onProgress?: (stage: string, progress: number) => Promise<void> | void;
 }
 
 function formatGenerationError(error: unknown): string {
@@ -334,6 +335,7 @@ function buildResearchGraph() {
   const graph = new StateGraph<ResearchGraphState>();
 
   graph.addNode('planner', async (state) => {
+    await state.onProgress?.('planning', 5);
     const step = await runAgentNode('planner', '规划检索', async () => ({
       summary: `意图 ${state.plan.intent} · 核心主题「${state.plan.coreTopic}」· ${state.plan.subQuestions.length} 个子问题`,
     }));
@@ -341,6 +343,7 @@ function buildResearchGraph() {
   });
 
   graph.addNode('researcher', async (state) => {
+    await state.onProgress?.('researching', 20);
     if (!state.request.includeExternal) {
       const step = await runAgentNode('researcher', '外部检索', async () => ({
         status: 'skipped' as const,
@@ -381,6 +384,7 @@ function buildResearchGraph() {
   });
 
   graph.addNode('librarian', async (state) => {
+    await state.onProgress?.('researching', 40);
     if (!state.request.includeLibrary) {
       const step = await runAgentNode('librarian', '知识库召回', async () => ({
         status: 'skipped' as const,
@@ -413,6 +417,7 @@ function buildResearchGraph() {
   });
 
   graph.addNode('assembler', async (state) => {
+    await state.onProgress?.('assembling', 55);
     const localEvidence = knowledgeEvidence(state.knowledgeMatches);
     const warnings = [...state.warnings];
     if (state.request.includeLibrary && state.knowledgeMatches.length > 0 && localEvidence.length === 0) {
@@ -426,6 +431,7 @@ function buildResearchGraph() {
   });
 
   graph.addNode('writer', async (state) => {
+    await state.onProgress?.('writing', 70);
     const extra = state.critic?.shouldRevise
       ? state.critic.issues.join('；')
       : '';
@@ -451,6 +457,7 @@ function buildResearchGraph() {
   });
 
   graph.addNode('critic', async (state) => {
+    await state.onProgress?.('reviewing', 88);
     if (!state.ai.apiKey || !state.generated) {
       const step = await runAgentNode('critic', '审校', async () => ({
         status: 'skipped' as const,
@@ -481,6 +488,9 @@ function buildResearchGraph() {
         maxTokens: 2048,
       });
       const critic = normalizeCriticOutput(parsed);
+      // Avoid an expensive second full generation for marginal quality gains.
+      // A rewrite is reserved for a genuinely low score with concrete issues.
+      critic.shouldRevise = critic.score < 0.55 && critic.issues.length > 0;
       if (state.revisionCount >= 1) critic.shouldRevise = false;
       const step = await runAgentNode('critic', '审校', async () => ({
         summary: `质量 ${Math.round(critic.score * 100)}%${critic.shouldRevise ? ' · 需要改写' : ' · 通过'}`,
@@ -496,6 +506,7 @@ function buildResearchGraph() {
   });
 
   graph.addNode('presenter', async (state) => {
+    await state.onProgress?.('assembling', 95);
     const generated = state.generated ?? localSynthesis(state.request, state.evidence, state.plan.intent);
     const step = await runAgentNode('presenter', '整理 PPT', async () => ({
       summary: `${generated.slides.length} 页幻灯片已就绪`,
@@ -522,6 +533,7 @@ export async function runResearchAgent(
   runId: string = randomUUID(),
   ai: AiRuntimeConfig = getPlatformAiRuntimeConfig(),
   template?: OutputTemplateSnapshot,
+  onProgress?: (stage: string, progress: number) => Promise<void> | void,
 ): Promise<ResearchResult> {
   const plan = buildSearchPlan(request);
   const compiled = buildResearchGraph();
@@ -540,6 +552,7 @@ export async function runResearchAgent(
     revisionCount: 0,
     trace: [],
     usedModel: false,
+    onProgress,
   });
   const generated = state.generated ?? localSynthesis(request, state.evidence, plan.intent);
   const finalized = finalizeGenerated(generated, state.evidence);

@@ -211,6 +211,40 @@ export async function createChatTextCompletion(input: ChatTextRequest): Promise<
   }
 }
 
+
+export async function* streamChatTextCompletion(input: ChatTextRequest): AsyncGenerator<string> {
+  if (!input.ai.apiKey) throw new Error('未配置对话模型 API Key。');
+  if (!input.messages.length) throw new Error('对话内容不能为空。');
+
+  const client = new OpenAI({
+    apiKey: input.ai.apiKey,
+    baseURL: input.ai.baseURL,
+    timeout: input.timeoutMs ?? 150_000,
+  });
+  const extras = buildChatRequestExtras(input.ai.chatModel, input.ai.baseURL);
+  const maxTokens = input.maxTokens
+    ?? (isForcedThinkingChatModel(input.ai.chatModel) ? 8_192 : 4_096);
+  try {
+    const stream = await client.chat.completions.create({
+      model: input.ai.chatModel,
+      messages: [
+        { role: 'system' as const, content: input.system },
+        ...input.messages.map((message) => ({ role: message.role, content: message.content })),
+      ],
+      temperature: input.temperature ?? 0.7,
+      max_tokens: maxTokens,
+      stream: true,
+      ...extras,
+    } as OpenAI.Chat.ChatCompletionCreateParamsStreaming);
+    for await (const chunk of stream) {
+      const text = readChatMessageText(chunk.choices[0]?.delta as ChatMessageLike | undefined);
+      if (text) yield text;
+    }
+  } catch (error) {
+    throw new Error(formatChatProviderError(error));
+  }
+}
+
 export interface ChatVisionRequest {
   ai: ChatAiConfig;
   system: string;

@@ -232,9 +232,12 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     }
     const mapped = activeResearchJob.stage === 'planning' ? 0
       : activeResearchJob.stage === 'researching' ? 1
-        : activeResearchJob.stage === 'revising' ? 4
-          : Math.min(stages.length - 1, Math.floor(activeResearchJob.progress / 25));
-    setStage(mapped);
+        : activeResearchJob.stage === 'assembling' ? 3
+          : activeResearchJob.stage === 'writing' ? 4
+            : activeResearchJob.stage === 'reviewing' ? 4
+              : activeResearchJob.stage === 'revising' ? 4
+                : Math.min(stages.length - 1, Math.floor(activeResearchJob.progress / 25));
+    setStage((current) => Math.max(current, mapped));
   }, [activeResearchJob, running]);
 
   useEffect(() => {
@@ -292,10 +295,6 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     setNotice('');
     setStage(0);
     setTab('overview');
-    const timer = window.setInterval(() => {
-      setStage((current) => Math.min(current + 1, stages.length - 2));
-    }, 950);
-
     try {
       const response = await fetch('/api/research', {
         method: 'POST',
@@ -329,7 +328,6 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : '研究任务执行失败');
     } finally {
-      window.clearInterval(timer);
       setRunning(false);
       setActiveResearchJob(null);
     }
@@ -647,13 +645,13 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                   {running ? '正在研究' : '开始研究'}
                 </button>
                 {activeResearchJob && running ? <button className="button secondary" type="button" onClick={() => void cancelActiveResearchJob().catch((error) => setError(error instanceof Error ? error.message : '取消失败'))}>取消后台任务</button> : null}
-                {activeResearchJob && running ? <div className="research-job-status"><span>{activeResearchJob.stage === 'planning' ? '规划检索' : activeResearchJob.stage === 'researching' ? '检索与生成' : activeResearchJob.stage === 'revising' ? '修订版本' : '执行中'}</span><strong>{activeResearchJob.progress}%</strong></div> : null}
+                {activeResearchJob && running ? <div className="research-job-status"><span>{activeResearchJob.stage === 'planning' ? '规划检索' : activeResearchJob.stage === 'researching' ? '检索与生成' : activeResearchJob.stage === 'revising' ? '修订版本' : activeResearchJob.stage === 'assembling' ? '整理证据与文稿' : activeResearchJob.stage === 'completed' ? '已完成' : '执行中'}</span><strong>{activeResearchJob.progress}%</strong></div> : null}
               </form>
 
               <div className="process-list" aria-label="任务进度">
                 {stages.map((label, index) => (
-                  <div className={running && index === stage ? 'process-step current' : result || index < stage ? 'process-step done' : 'process-step'} key={label}>
-                    <span>{result || index < stage ? <Check size={12} /> : index + 1}</span>{label}
+                  <div className={running && index === stage ? 'process-step current' : index < stage || (!running && result) ? 'process-step done' : 'process-step'} key={label}>
+                    <span>{index < stage || (!running && result) ? <Check size={12} /> : index + 1}</span>{label}
                   </div>
                 ))}
               </div>

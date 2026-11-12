@@ -39,14 +39,23 @@ async function processJob(job: ClaimedResearchJob): Promise<void> {
     heartbeat.unref?.();
 
     if (job.kind === 'research' && job.payload.request) {
-      await updateResearchJob(job.id, job.workerToken, 'researching', 20);
-      const result = await runResearchAgent(job.payload.request, scope, job.runId, ai, job.templateSnapshot);
+      await updateResearchJob(job.id, job.workerToken, 'planning', 5);
+      await updateResearchJob(job.id, job.workerToken, 'researching', 25);
+      const result = await runResearchAgent(
+        job.payload.request,
+        scope,
+        job.runId,
+        ai,
+        job.templateSnapshot,
+        (stage, progress) => updateResearchJob(job.id, job.workerToken, stage, progress),
+      );
       if (!await isResearchJobActive(job.id, job.workerToken)) return;
+      await updateResearchJob(job.id, job.workerToken, 'assembling', 65);
       await completeResearchRun(scope, result);
     } else if (job.kind === 'refine' && job.payload.previousRunId && job.payload.instruction) {
       const previous = await getResearchResult(scope, job.payload.previousRunId);
       if (!previous) throw new Error('待修改的研究版本不存在。');
-      await updateResearchJob(job.id, job.workerToken, 'revising', 20);
+      await updateResearchJob(job.id, job.workerToken, 'revising', 35);
       const result = await refineResearchAgent({
         previous,
         instruction: job.payload.instruction,

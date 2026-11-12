@@ -291,12 +291,7 @@ export function PptxSlideCanvas({
                     <label><span>颜色</span><input type="color" value={selectedElement.color ?? '#1F2937'} onChange={(event) => updateElement({ color: event.target.value })} /></label>
                   </div>
                 </> : null}
-                <div className="visual-form-grid">
-                  <label><span>X</span><input type="number" value={Math.round(selectedElement.x)} onChange={(event) => updateElement({ x: clamp(Number(event.target.value) || 0, -100, 1000) })} /></label>
-                  <label><span>Y</span><input type="number" value={Math.round(selectedElement.y)} onChange={(event) => updateElement({ y: clamp(Number(event.target.value) || 0, -100, 700) })} /></label>
-                  <label><span>宽</span><input type="number" value={Math.round(selectedElement.width)} onChange={(event) => updateElement({ width: clamp(Number(event.target.value) || 1, 1, 1200) })} /></label>
-                  <label><span>高</span><input type="number" value={Math.round(selectedElement.height)} onChange={(event) => updateElement({ height: clamp(Number(event.target.value) || 1, 1, 800) })} /></label>
-                </div>
+                <p className="visual-gesture-hint">直接拖动元素调整位置；拖动右下角方块调整大小。方向键可微调，按住 Shift 每次移动 10 像素。</p>
               </div> : <div className="visual-element-hint">点击画布中的文字、图片或形状，在这里调整位置和样式。</div>}
               <div className="visual-background-control"><label><span>页面背景</span><input type="color" value={selected.background ?? '#FFFFFF'} onChange={(event) => onChangeSlide(activeSlideIndex, { ...selected, background: event.target.value })} /></label></div>
             </aside> : null}

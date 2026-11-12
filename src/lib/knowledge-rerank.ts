@@ -6,7 +6,7 @@ import type { AiRuntimeConfig } from '@/types/platform';
 
 export const KNOWLEDGE_RERANK_CANDIDATES = 24;
 export const KNOWLEDGE_FINAL_RESULTS = 8;
-export const KNOWLEDGE_RERANK_TIMEOUT_MS = 45_000;
+export const KNOWLEDGE_RERANK_TIMEOUT_MS = 25_000;
 
 export type KnowledgeRecallLimit = {
   retrievalLimit: number;

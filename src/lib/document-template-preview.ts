@@ -1,12 +1,10 @@
 import { Buffer } from 'node:buffer';
 import mammoth from 'mammoth';
-import { extractText, getDocumentProxy } from 'unpdf';
+import { extractText, getDocumentProxy, renderPageAsImage } from 'unpdf';
 
-export interface DocumentPagePreview {
-  index: number;
-  title: string;
-  text: string;
-}
+import type { DocumentPagePreview } from '@/types/platform';
+
+export type { DocumentPagePreview };
 
 export interface DocumentTemplatePreview {
   kind: 'pdf' | 'docx';
@@ -22,11 +20,29 @@ export async function extractDocumentTemplatePreview(bytes: Uint8Array, extensio
     const pdf = await getDocumentProxy(bytes.slice());
     try {
       const parsed = await extractText(pdf, { mergePages: false });
-      const pages = parsed.text.map((text, index) => ({
-        index: index + 1,
-        title: clean(text).slice(0, 60) || `第 ${index + 1} 页`,
-        text: clean(text).slice(0, 3000),
-      })).filter((page) => page.text);
+      const pages: DocumentPagePreview[] = [];
+      for (let index = 0; index < parsed.totalPages; index += 1) {
+        const text = clean(parsed.text[index] ?? '').slice(0, 3000);
+        let imageDataUrl: string | undefined;
+        try {
+          const rendered = await renderPageAsImage(pdf, index + 1, {
+            canvasImport: () => import('@napi-rs/canvas'),
+            width: 1200,
+            toDataURL: true,
+          });
+          if (rendered) imageDataUrl = rendered;
+        } catch {
+          // Text preview remains available when a page cannot be rasterized.
+        }
+        if (text || imageDataUrl) {
+          pages.push({
+            index: index + 1,
+            title: text.slice(0, 60) || `第 ${index + 1} 页`,
+            text,
+            imageDataUrl,
+          });
+        }
+      }
       if (!pages.length) throw new Error('PDF 没有可预览文字。');
       return { kind: 'pdf', pages: pages.slice(0, 60) };
     } finally {

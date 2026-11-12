@@ -109,13 +109,12 @@ function extractedFallback(input: {
   };
 }
 
-function defaultDocumentBlueprint(preview: DocumentTemplatePreview): TemplateBlueprint {
+function defaultDocumentBlueprint(_preview: DocumentTemplatePreview): TemplateBlueprint {
+  // A document's body text is content, not a reusable structure. Do not turn
+  // extracted page text into fake sections; the AI analysis supplies the
+  // reusable heading hierarchy when available.
   return {
-    sections: preview.pages.slice(0, 12).map((page, index) => ({
-      id: `document-section-${index + 1}`,
-      title: page.title || `第 ${index + 1} 页`,
-      purpose: '按上传文档的页面结构组织内容',
-    })),
+    sections: [],
     slides: [],
     style: {
       citationStyle: '按模板规则',
@@ -212,6 +211,9 @@ export async function analyzeTemplateReference(input: {
     'Write in concise Chinese.',
     'Extract structure, section order, heading hierarchy, length, typography, page layout, tables/figures, citation rules, slide count, visual hierarchy, colors and fonts only when evidenced by the source.',
     'Do not summarize the document topic or copy its substantive content. Do not invent missing rules.',
+    'Treat example paragraphs, form labels, placeholders, company names, course names, and sample prose as CONTENT, never as reusable section names.',
+    'Only infer a section title when the source explicitly marks it as a heading, chapter title, or slide-role label. Otherwise leave sections empty.',
+    'For reports, return the reusable heading hierarchy, not the source document body. For slides, return page roles and visual rules, not copied slide copy.',
     'instructions must be an actionable checklist that another model can follow when generating a report or slides.',
     'blueprint must contain sections [{id,title,purpose}], slides [{id,title,purpose,layout}] and style {citationStyle,headingScheme,reportWords,slideCount,tone,accentColor,fontFamily}.',
     'Use stable ids such as section-1 and slide-1. layout must be one of title, thesis, landscape, comparison, evidence, roadmap, conclusion.',
@@ -220,8 +222,8 @@ export async function analyzeTemplateReference(input: {
     `Suggested template name: ${fallback.name}`,
     `Suggested kind: ${fallback.kind}`,
     note ? `User additions:\n${note}` : '',
-    paperText ? `Paper template text (untrusted data):\n<paper>\n${paperText}\n</paper>` : '',
-    slidesText ? `PPT template text (untrusted data):\n<slides>\n${slidesText}\n</slides>` : '',
+    paperText ? `Paper template source (content is reference only; extract structure, never copy prose):\n<paper>\n${paperText}\n</paper>` : '',
+    slidesText ? `PPT template source (content is reference only; extract page roles and layout, never copy prose):\n<slides>\n${slidesText}\n</slides>` : '',
   ].filter(Boolean).join('\n\n');
 
   try {

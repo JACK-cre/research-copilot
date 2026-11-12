@@ -62,6 +62,7 @@ export function SettingsView({ templates, onTemplatesChanged, onError, onNotice 
     blueprint: defaultTemplateBlueprint('both'),
   });
   const [showAdvancedTemplate, setShowAdvancedTemplate] = useState(false);
+  const [showModelSettings, setShowModelSettings] = useState(false);
 
   const loadAiSettings = useCallback(async () => {
     try {
@@ -274,7 +275,14 @@ export function SettingsView({ templates, onTemplatesChanged, onError, onNotice 
   const customTemplates = templates.filter((template) => !template.isDefault);
   return <div className="settings-layout">
     <section className="settings-section">
-      <div className="settings-title"><KeyRound size={19} /><div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'}{}</span></div></div>
+      <div className="settings-title collapsible-title">
+        <button type="button" className="settings-collapse-toggle" onClick={() => setShowModelSettings((value) => !value)} aria-expanded={showModelSettings}>
+          {showModelSettings ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+          <KeyRound size={19} />
+          <div><h2>模型服务</h2><span className={'source-status ' + (ai?.activeSource ?? 'local')}>{ai?.activeSource === 'personal' ? '个人接口已启用' : ai?.activeSource === 'platform' ? '平台接口' : '尚未连接模型'} · 点击展开配置</span></div>
+        </button>
+      </div>
+      {showModelSettings ? <div className="settings-collapsible-body">
       <p className="settings-description">对话模型负责检索重排、论文、PPT、复习对话和模板识别；Embedding 服务负责知识库中文语义检索。两者可以使用不同服务商，密钥分别加密保存。</p>
       <div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'embedding').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(baseURL)?.id === provider.id ? ' active' : '')} key={provider.id} onClick={() => { setBaseURL(provider.baseURL); if (provider.chatModels[0]) setChatModel(provider.chatModels[0]); if (provider.kind === 'both' && embeddingModel !== 'local-hash-v1') { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); } }}>{provider.name}</button>)}</div>
       <p className="provider-links">{matchProvider(baseURL) ? <><a href={matchProvider(baseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(baseURL)!.name} API Key</a>{matchProvider(baseURL)!.docsUrl ? <> · <a href={matchProvider(baseURL)!.docsUrl} target="_blank" rel="noreferrer">接口说明</a></> : null}</> : <span>填写任意 OpenAI 兼容地址。常用入口：{MODEL_PROVIDERS.map((provider) => <a href={provider.keyUrl} target="_blank" rel="noreferrer" key={provider.id}>{provider.name}</a>)}</span>}</p>
@@ -288,6 +296,7 @@ export function SettingsView({ templates, onTemplatesChanged, onError, onNotice 
         {embeddingModel !== 'local-hash-v1' ? <div className="embedding-provider-panel"><div className="provider-pills">{MODEL_PROVIDERS.filter((provider) => provider.kind !== 'chat').map((provider) => <button type="button" className={'provider-pill' + (matchProvider(embeddingBaseURL)?.id === provider.id ? ' active' : '')} key={'emb-' + provider.id} onClick={() => { setEmbeddingBaseURL(provider.baseURL); if (provider.embeddingModels[0]) setEmbeddingModel(provider.embeddingModels[0]); }}>{provider.name}</button>)}</div><p className="provider-links">{matchProvider(embeddingBaseURL) ? <a href={matchProvider(embeddingBaseURL)!.keyUrl} target="_blank" rel="noreferrer">获取 {matchProvider(embeddingBaseURL)!.name} Embedding Key</a> : null}</p><label><span>Embedding API Key</span><input type="password" autoComplete="off" value={embeddingApiKey} onChange={(event) => setEmbeddingApiKey(event.target.value)} placeholder={ai?.hasEmbeddingKey ? '已加密保存，留空不会修改' : '填写向量服务的 API Key'} /><small>{embeddingRequirement(embeddingBaseURL, embeddingModel)}</small></label><div className="settings-grid"><label><span>Embedding 接口地址</span><input type="url" value={embeddingBaseURL} onChange={(event) => setEmbeddingBaseURL(event.target.value)} required /></label><label><span>Embedding 模型</span><input value={embeddingModel} onChange={(event) => setEmbeddingModel(event.target.value)} required /></label></div></div> : null}
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
+      </div> : null}
     </section>
 
     <section className="settings-section">
