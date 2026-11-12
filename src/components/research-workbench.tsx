@@ -62,8 +62,8 @@ type ResultTab = 'overview' | 'papers' | 'report' | 'slides';
 const initialRequest: ResearchRequest = {
   topic: 'RAG 与 MCP 驱动的研究智能体',
   requirements: '关注检索质量、工具调用、引用可信度与实际应用',
-  deliverable: 'survey',
-  audience: 'technical',
+  deliverable: 'auto',
+  audience: 'auto',
   yearFrom: 2020,
   paperCount: 8,
   includeExternal: true,
@@ -71,7 +71,7 @@ const initialRequest: ResearchRequest = {
   templateId: '',
 };
 
-const stages = ['拆解主题', '检索外部来源', '召回知识', '组织证据', '生成交付物'];
+const stages = ['理解任务', '按需补充资料', '组织内容', '生成交付物', '质量审校'];
 
 function formatBytes(size: number): string {
   if (size < 1024) return size + ' B';
@@ -615,19 +615,14 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           >
             <aside className="brief-panel">
               <form onSubmit={runResearch}>
-                <div className="section-heading"><PanelLeft size={16} /><span>研究简报</span></div>
-                <label className="field-label" htmlFor="topic">研究主题</label>
-                <textarea id="topic" className="textarea topic-input" value={request.topic} onChange={(event) => setRequest({ ...request, topic: event.target.value })} placeholder="例如：长征精神的当代价值与青年实践" required />
+                <div className="section-heading"><PanelLeft size={16} /><span>任务简报</span></div>
+                <label className="field-label" htmlFor="topic">主题或任务</label>
+                <textarea id="topic" className="textarea topic-input" value={request.topic} onChange={(event) => setRequest({ ...request, topic: event.target.value })} placeholder="例如：实习转正答辩、课程论文、产品方案或读书报告" required />
 
                 <label className="field-label" htmlFor="requirements">侧重点与要求</label>
-                <textarea id="requirements" className="textarea" value={request.requirements} onChange={(event) => setRequest({ ...request, requirements: event.target.value })} placeholder="例如：写成课堂读书报告，约 5000 字；结合史料和个人体会；也可以直接说明论文结构或 PPT 页数。" />
+                <textarea id="requirements" className="textarea" value={request.requirements} onChange={(event) => setRequest({ ...request, requirements: event.target.value })} placeholder="粘贴事实材料并说明侧重点、页数、篇幅、语气或希望强调的内容；系统会自动判断形式和受众。" />
 
-                <div className="two-columns">
-                  <label className="control"><span>交付类型</span><select value={request.deliverable} onChange={(event) => setRequest({ ...request, deliverable: event.target.value as ResearchRequest['deliverable'] })}><option value="survey">研究综述</option><option value="proposal">技术方案</option><option value="briefing">汇报简报</option></select></label>
-                  <label className="control"><span>目标受众</span><select value={request.audience} onChange={(event) => setRequest({ ...request, audience: event.target.value as ResearchRequest['audience'] })}><option value="technical">技术团队</option><option value="academic">学术研究</option><option value="general">通用受众</option></select></label>
-                </div>
-
-                <label className="control template-control"><span>输出模板</span><select value={request.templateId ?? ''} onChange={(event) => setRequest({ ...request, templateId: event.target.value })}><option value="">自由格式（按要求自动规划）</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select><small>不选模板时，系统会根据主题、交付类型和“侧重点与要求”自行组织结构。</small></label>
+                <label className="control template-control"><span>输出模板</span><select value={request.templateId ?? ''} onChange={(event) => setRequest({ ...request, templateId: event.target.value })}><option value="">自由格式（按要求自动规划）</option>{templates.map((template) => <option value={template.id} key={template.id}>{template.name}</option>)}</select><small>系统会结合模板版式、主题和要求自动推断内容结构，不会复用模板里的示例正文。</small></label>
 
                 <div className="two-columns">
                   <label className="control"><span>起始年份</span><input type="number" min="1900" max={new Date().getFullYear()} value={request.yearFrom} onChange={(event) => setRequest({ ...request, yearFrom: Number(event.target.value) })} /><small>读后感等历史主题会自动放宽到 1900 年，避免漏掉史料。</small></label>
@@ -635,17 +630,17 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                 </div>
 
                 <fieldset className="source-options">
-                  <legend>检索来源</legend>
+                  <legend>补充资料来源（可选）</legend>
                   <label><input type="checkbox" checked={request.includeExternal} onChange={(event) => setRequest({ ...request, includeExternal: event.target.checked })} /><span><BookOpen size={15} />论文、图书与网页</span></label>
                   <label><input type="checkbox" checked={request.includeLibrary} onChange={(event) => setRequest({ ...request, includeLibrary: event.target.checked })} /><span><Database size={15} />本地知识库</span></label>
                 </fieldset>
 
                 <button className="button run-button" type="submit" disabled={running || !request.topic.trim()}>
                   {running ? <LoaderCircle className="spin" size={17} /> : <Sparkles size={17} />}
-                  {running ? '正在研究' : '开始研究'}
+                  {running ? '正在生成' : '开始生成'}
                 </button>
                 {activeResearchJob && running ? <button className="button secondary" type="button" onClick={() => void cancelActiveResearchJob().catch((error) => setError(error instanceof Error ? error.message : '取消失败'))}>取消后台任务</button> : null}
-                {activeResearchJob && running ? <div className="research-job-status"><span>{activeResearchJob.stage === 'planning' ? '规划检索' : activeResearchJob.stage === 'researching' ? '检索与生成' : activeResearchJob.stage === 'revising' ? '修订版本' : activeResearchJob.stage === 'assembling' ? '整理证据与文稿' : activeResearchJob.stage === 'completed' ? '已完成' : '执行中'}</span><strong>{activeResearchJob.progress}%</strong></div> : null}
+                {activeResearchJob && running ? <div className="research-job-status"><span>{activeResearchJob.stage === 'planning' ? '理解任务并规划工作流' : activeResearchJob.stage === 'researching' ? '按需检索与召回资料' : activeResearchJob.stage === 'revising' ? '按要求修订版本' : activeResearchJob.stage === 'assembling' ? '组织内容并生成交付物' : activeResearchJob.stage === 'completed' ? '已完成' : '执行中'}</span><strong>{activeResearchJob.progress}%</strong></div> : null}
               </form>
 
               <div className="process-list" aria-label="任务进度">

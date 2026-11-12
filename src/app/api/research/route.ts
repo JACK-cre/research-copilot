@@ -14,15 +14,13 @@ export const maxDuration = 30;
 const requestSchema = z.object({
   topic: z.string().trim().min(2).max(500),
   requirements: z.string().trim().max(50000).default(''),
-  deliverable: z.enum(['survey', 'proposal', 'briefing']).default('survey'),
-  audience: z.enum(['general', 'technical', 'academic']).default('technical'),
+  deliverable: z.enum(['auto', 'survey', 'proposal', 'briefing']).default('auto'),
+  audience: z.enum(['auto', 'general', 'technical', 'academic']).default('auto'),
   yearFrom: z.number().int().min(1900).max(new Date().getFullYear()).default(2020),
   paperCount: z.number().int().min(3).max(40).default(8),
   includeExternal: z.boolean().default(true),
   includeLibrary: z.boolean().default(true),
   templateId: z.string().trim().max(120).optional().default(''),
-}).refine((value) => value.includeExternal || value.includeLibrary, {
-  message: '至少选择一个检索来源。',
 });
 
 export async function POST(request: Request) {

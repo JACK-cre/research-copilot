@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.join(rootDirectory, 'src'),
+      'server-only': path.join(rootDirectory, 'scripts/worker-shims/server-only.mjs'),
     },
   },
   test: {

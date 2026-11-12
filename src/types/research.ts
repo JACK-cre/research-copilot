@@ -5,7 +5,8 @@ import type {
   RevisionTarget,
 } from "@/types/platform";
 
-export type DeliverableType = "survey" | "proposal" | "briefing";
+export type DeliverableType = "auto" | "survey" | "proposal" | "briefing";
+export type AudienceType = "auto" | "general" | "technical" | "academic";
 export type ResearchIntent = "academic" | "book_review" | "general";
 export type ExternalSourceType = "paper" | "book" | "web";
 export type ExternalSourceProvider = "openalex" | "crossref" | "google-books" | "internet-archive" | "wikipedia" | "baidu-baike" | "wikidata" | "web-search" | "semantic-scholar" | "europe-pmc" | "arxiv" | "demo";
@@ -14,7 +15,7 @@ export interface ResearchRequest {
   topic: string;
   requirements: string;
   deliverable: DeliverableType;
-  audience: "general" | "technical" | "academic";
+  audience: AudienceType;
   yearFrom: number;
   paperCount: number;
   includeExternal: boolean;

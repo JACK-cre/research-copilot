@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildLocalRevision } from './local-revision';
 import { normalizeGeneratedResearchOutput, normalizeStudyAction } from './generated-output';
+import { runResearchAgent } from './research-agent';
 import type { ResearchResult } from '@/types/research';
 
 const previous = {
@@ -105,5 +106,34 @@ describe('normalizeGeneratedResearchOutput limits', () => {
       })),
     });
     expect(output.slides).toHaveLength(64);
+  });
+});
+
+describe('runResearchAgent dynamic source-material route', () => {
+  it('generates an internship presentation from first-party material with zero evidence', async () => {
+    const result = await runResearchAgent({
+      topic: '实习生转正答辩',
+      requirements: '我在电商搜索团队从事 Java 后端开发；5-6 月完成诊断与评测平台；6-8 月负责商品卡与搜索首页改造；后续完成发券、图搜 Agent 和导流项目；希望突出个人职责、技术难点与成长。',
+      deliverable: 'auto',
+      audience: 'auto',
+      yearFrom: 2020,
+      paperCount: 8,
+      includeExternal: false,
+      includeLibrary: false,
+    }, undefined, 'run-internship', {
+      source: 'local',
+      baseURL: 'http://127.0.0.1:11434/v1',
+      chatModel: 'local',
+      embeddingBaseURL: 'http://127.0.0.1:11434/v1',
+      embeddingModel: 'local',
+      embeddingDimensions: 1024,
+      embeddingIdentity: 'local:1024',
+    });
+
+    expect(result.evidence).toHaveLength(0);
+    expect(result.title).toBe('实习生转正答辩');
+    expect(result.slides.map((slide) => slide.title)).toContain('阶段推进');
+    expect(JSON.stringify(result)).not.toContain('当前尚未获得可用证据');
+    expect(JSON.stringify(result)).not.toContain('研究版图');
   });
 });

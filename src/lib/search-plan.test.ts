@@ -32,4 +32,13 @@ describe('research search planning', () => {
       audience: 'academic',
     })).toBe('academic');
   });
+
+  it('does not force automatic-audience work summaries into an academic genre', () => {
+    expect(detectResearchIntent({
+      ...baseRequest,
+      topic: '实习转正答辩',
+      requirements: '总结个人负责的 Java 后端项目与成长',
+      audience: 'auto',
+    })).toBe('general');
+  });
 });
