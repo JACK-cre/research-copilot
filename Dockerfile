@@ -31,13 +31,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/database ./database
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@napi-rs ./node_modules/@napi-rs
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/pngjs ./node_modules/pngjs
-# Next standalone already traces sharp's platform-specific native package.
-# Copying all @img variants would add unnecessary macOS/Windows binaries.
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/detect-libc ./node_modules/detect-libc
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/semver ./node_modules/semver
+# Workers keep Node libraries external so CommonJS packages such as pg load
+# through Node's native require implementation. Copy the production dependency
+# tree after the standalone app files.
+COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules ./node_modules
+# Next standalone carries its own dependency subset; the worker needs the full
+# production tree copied above. Keep a marker to make that intentional.
 COPY --from=builder --chown=nextjs:nodejs /app/worker-dist ./worker-dist
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/ingestion-worker.mjs ./scripts/ingestion-worker.mjs
 COPY --from=builder --chown=nextjs:nodejs /app/scripts/research-worker.mjs ./scripts/research-worker.mjs
