@@ -278,6 +278,30 @@ function addRoadmap(pptx: PptxGenJS, slide: PptxGenJS.Slide, spec: SlideSpec) {
   });
 }
 
+
+function addDocumentStructureSlide(
+  pptx: PptxGenJS,
+  slide: PptxGenJS.Slide,
+  spec: SlideSpec,
+  index: number,
+  templateName: string,
+) {
+  const accent = index % 2 ? COLORS.teal : COLORS.coral;
+  slide.background = { color: COLORS.paper };
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: 0.18, h: 7.5, fill: { color: accent }, line: { transparency: 100 } });
+  slide.addText(trimText(spec.title, 70), { x: 0.65, y: 0.48, w: 11.9, h: 0.55, fontFace: 'Aptos Display', fontSize: 25, bold: true, color: COLORS.ink, margin: 0 });
+  slide.addShape(pptx.ShapeType.line, { x: 0.65, y: 1.18, w: 11.9, h: 0, line: { color: COLORS.line, width: 1 } });
+  const points = spec.keyPoints.slice(0, 4);
+  points.forEach((point, pointIndex) => {
+    const y = 1.55 + pointIndex * 1.25;
+    slide.addShape(pptx.ShapeType.roundRect, { x: 0.72, y, w: 11.75, h: 1.02, rectRadius: 0.08, fill: { color: pointIndex % 2 ? 'F2F7F5' : 'FFF8F4' }, line: { color: COLORS.line, width: 1 } });
+    slide.addText(String(pointIndex + 1).padStart(2, '0'), { x: 0.95, y: y + 0.23, w: 0.6, h: 0.35, fontSize: 12, bold: true, color: accent, margin: 0 });
+    slide.addText(trimText(point, 210), { x: 1.65, y: y + 0.16, w: 10.3, h: 0.7, fontSize: 17, color: COLORS.ink, valign: 'middle', margin: 0 });
+  });
+  slide.addText(templateName, { x: 0.7, y: 7.08, w: 6, h: 0.2, fontSize: 8, color: COLORS.muted, margin: 0 });
+  if (spec.citations.length) slide.addText(spec.citations.map((id) => `[${id}]`).join(' '), { x: 8.4, y: 7.08, w: 4.2, h: 0.2, fontSize: 8, color: COLORS.muted, align: 'right', margin: 0 });
+}
+
 export async function buildPresentation(result: ResearchResult): Promise<Uint8Array> {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE';
@@ -296,7 +320,9 @@ export async function buildPresentation(result: ResearchResult): Promise<Uint8Ar
     const visualTemplate = result.template?.blueprint;
     const templateSlide = visualTemplate?.slides[index];
 
-    if (templateSlide?.elements?.length) {
+    if (result.template?.blueprint?.documentPages?.length && !templateSlide?.elements?.length) {
+      addDocumentStructureSlide(pptx, slide, spec, index, result.template.name);
+    } else if (templateSlide?.elements?.length) {
       addTemplateSlide(
         pptx,
         slide,
@@ -362,7 +388,11 @@ export async function buildPresentation(result: ResearchResult): Promise<Uint8Ar
       addFrame(pptx, slide, spec.title, slideNumber, spec.citations, result.template?.citationStyle ?? 'Sources');
       if (spec.type === 'comparison') addComparison(pptx, slide, spec);
       else if (spec.type === 'roadmap') addRoadmap(pptx, slide, spec);
-      else addBullets(slide, spec.keyPoints);
+      else if (spec.type === 'evidence') {
+        addBullets(slide, spec.keyPoints, { y: 1.55 });
+        slide.addShape(pptx.ShapeType.roundRect, { x: 0.72, y: 5.95, w: 2.1, h: 0.42, rectRadius: 0.06, fill: { color: COLORS.tealSoft }, line: { transparency: 100 } });
+        slide.addText('证据驱动', { x: 0.9, y: 6.06, w: 1.7, h: 0.18, fontSize: 10, bold: true, color: COLORS.teal, margin: 0 });
+      } else addBullets(slide, spec.keyPoints);
     }
 
     if (spec.speakerNotes) slide.addNotes(spec.speakerNotes);

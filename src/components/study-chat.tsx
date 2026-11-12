@@ -49,6 +49,8 @@ export function StudyChat({
   const [messages, setMessages] = useState<StudyMessage[]>([]);
   const [optimisticUser, setOptimisticUser] = useState<StudyMessage | null>(null);
   const [streamingText, setStreamingText] = useState('');
+  const [streamingUser, setStreamingUser] = useState<StudyMessage | null>(null);
+  const [streamActive, setStreamActive] = useState(false);
   const [memorySummary, setMemorySummary] = useState('');
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingImage[]>([]);
@@ -159,7 +161,7 @@ export function StudyChat({
     setDraft('');
     setSending(true);
     onError('');
-    setOptimisticUser({
+    const optimisticMessage: StudyMessage = {
       id: 'optimistic-' + Date.now(),
       role: 'user',
       content: message || (files.length ? `已添加 ${files.length} 张图片` : ''),
@@ -167,10 +169,13 @@ export function StudyChat({
       toolTrace: [],
       attachments: [],
       createdAt: new Date().toISOString(),
-    });
+    };
+    setOptimisticUser(optimisticMessage);
+    setStreamingUser(optimisticMessage);
     try {
       if (freeChat && !files.length) {
         setStreamingText('');
+        setStreamActive(true);
         const response = await fetch('/api/study/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -205,6 +210,8 @@ export function StudyChat({
         setMemorySummary(donePayload.memorySummary ?? '');
         setStreamingText('');
         setOptimisticUser(null);
+        setStreamingUser(null);
+        setStreamActive(false);
         window.localStorage.setItem(STORAGE_KEY, donePayload.conversationId);
         clearPending(pending);
         await loadConversations();
@@ -221,6 +228,7 @@ export function StudyChat({
       if (!response.ok) throw new Error(payload.error || '发送失败');
       setConversationId(payload.conversationId);
       setOptimisticUser(null);
+      setStreamingUser(null);
       setMessages(payload.messages ?? []);
       setMemorySummary(payload.memorySummary ?? '');
       window.localStorage.setItem(STORAGE_KEY, payload.conversationId);
@@ -230,6 +238,8 @@ export function StudyChat({
       onError(error instanceof Error ? error.message : '发送失败');
       setDraft(message);
       setOptimisticUser(null);
+      setStreamingUser(null);
+      setStreamActive(false);
       setStreamingText('');
     } finally {
       setSending(false);
@@ -299,9 +309,9 @@ export function StudyChat({
           {memorySummary ? <div className="study-memory">更早的对话已压缩为记忆，本页仍显示完整记录。模型下次只会看到摘要和最近 4 轮原文。</div> : null}
           {optimisticUser ? <article className={'study-bubble ' + optimisticUser.role} key={optimisticUser.id}>
             <strong>你</strong>
-            <p>{optimisticUser.content}</p>
+            <div className="study-message-content">{renderMessageContent(optimisticUser.content)}</div>
           </article> : null}
-          {messages.length ? messages.map((item) => (
+          {!streamActive && messages.length ? messages.map((item) => (
             <article className={'study-bubble ' + item.role} key={item.id}>
               <strong>{item.role === 'user' ? '你' : item.toolTrace?.length ? '复习助手' : '助手'}</strong>
               {item.attachments?.length && conversationId ? (

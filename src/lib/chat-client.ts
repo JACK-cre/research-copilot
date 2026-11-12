@@ -69,9 +69,8 @@ export function stringifyChatContent(value: unknown): string {
 
 export function readChatMessageText(message: ChatMessageLike | undefined | null): string {
   if (!message) return '';
-  return stringifyChatContent(message.content)
-    || stringifyChatContent(message.reasoning_content)
-    || stringifyChatContent(message.reasoningContent);
+  // reasoning_content is private chain-of-thought, never user-visible content.
+  return stringifyChatContent(message.content);
 }
 
 export function extractJsonText(raw: string): string {

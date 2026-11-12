@@ -5278,3 +5278,33 @@ body.resizing-rows * {
   color: var(--muted);
   font-size: 9px;
 }
+
+.study-thread {
+  min-width: 0;
+}
+
+.study-bubble {
+  width: fit-content;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.study-bubble.assistant {
+  justify-self: start;
+}
+
+.study-bubble.user {
+  justify-self: end;
+}
+
+.study-message-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.study-message-content p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

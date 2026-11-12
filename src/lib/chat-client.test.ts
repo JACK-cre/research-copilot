@@ -21,10 +21,11 @@ describe('chat client helpers', () => {
     expect(buildChatRequestExtras('deepseek-chat', 'https://api.deepseek.com')).toEqual({});
   });
 
-  it('reads JSON from content, fences, or reasoning_content', () => {
+  it('reads visible content and parses JSON without exposing reasoning', () => {
     expect(JSON.parse(extractJsonText('{"ok":true}'))).toEqual({ ok: true });
     expect(JSON.parse(extractJsonText('here is json\n```json\n{"a":1}\n```'))).toEqual({ a: 1 });
-    expect(readChatMessageText({ content: '  ' , reasoning_content: '{"score":1}' })).toBe('{"score":1}');
+    expect(readChatMessageText({ content: '  ', reasoning_content: '{"score":1}' })).toBe('');
+    expect(readChatMessageText({ content: '最终回答', reasoning_content: 'private thought' })).toBe('最终回答');
     expect(readChatMessageText({ content: [{ text: '{"ok":true}' }] })).toBe('{"ok":true}');
   });
 

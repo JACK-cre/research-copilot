@@ -11,6 +11,7 @@ import { createChatJsonCompletion } from '@/lib/chat-client';
 import { cleanExtractedText, extractPptxReference } from '@/lib/template-text';
 import { extractPptxVisualTemplate, type PptxVisualTemplate } from '@/lib/pptx-visual';
 import { extractDocumentTemplatePreview, type DocumentTemplatePreview } from '@/lib/document-template-preview';
+import { extractDocxTemplateStructure, docxStructureToInstructions, type DocxTemplateStructure } from '@/lib/docx-template-structure';
 import { parseTemplateBlueprint } from '@/lib/template-blueprint';
 import type { AiRuntimeConfig, TemplateBlueprint, TemplateKind } from '@/types/platform';
 
@@ -30,6 +31,7 @@ export interface TemplateAnalysis {
   blueprint?: TemplateBlueprint;
   visualTemplate?: PptxVisualTemplate;
   documentPreview?: DocumentTemplatePreview;
+  documentStructure?: DocxTemplateStructure;
   mode: 'ai' | 'extracted';
   paperSourceName?: string;
   slidesSourceName?: string;
@@ -177,6 +179,7 @@ export async function analyzeTemplateReference(input: {
   let slidesName: string | undefined;
   let visualTemplate: PptxVisualTemplate | undefined;
   let documentPreview: DocumentTemplatePreview | undefined;
+  let documentStructure: DocxTemplateStructure | undefined;
 
   for (const file of incoming) {
     const extracted = await extractTemplateReference(file);
@@ -193,6 +196,9 @@ export async function analyzeTemplateReference(input: {
       const extension = path.extname(file.name).toLowerCase();
       if (extension === '.pdf' || extension === '.docx') {
         documentPreview = await extractDocumentTemplatePreview(new Uint8Array(await file.arrayBuffer()), extension);
+        if (extension === '.docx') {
+          documentStructure = await extractDocxTemplateStructure(new Uint8Array(await file.arrayBuffer()));
+        }
       }
     }
   }
@@ -202,6 +208,10 @@ export async function analyzeTemplateReference(input: {
   }
 
   const fallback = extractedFallback({ note, paperText, slidesText, paperName, slidesName });
+  if (documentStructure) {
+    fallback.instructions = [note ? `用户补充要求：${note}` : '', docxStructureToInstructions(documentStructure)].filter(Boolean).join('\n\n');
+    fallback.description = '依据上传文档的版式、字段和段落结构提取';
+  }
   if (!input.ai.apiKey) return fallback;
 
   const prompt = [
@@ -222,7 +232,7 @@ export async function analyzeTemplateReference(input: {
     `Suggested template name: ${fallback.name}`,
     `Suggested kind: ${fallback.kind}`,
     note ? `User additions:\n${note}` : '',
-    paperText ? `Paper template source (content is reference only; extract structure, never copy prose):\n<paper>\n${paperText}\n</paper>` : '',
+    documentStructure ? `DOCX STRUCTURE (use only this for layout and fields):\n${docxStructureToInstructions(documentStructure)}` : paperText ? `Paper template source (content is reference only; extract structure, never copy prose):\n<paper>\n${paperText}\n</paper>` : '',
     slidesText ? `PPT template source (content is reference only; extract page roles and layout, never copy prose):\n<slides>\n${slidesText}\n</slides>` : '',
   ].filter(Boolean).join('\n\n');
 
@@ -245,6 +255,7 @@ export async function analyzeTemplateReference(input: {
         })(),
       visualTemplate,
       documentPreview,
+      documentStructure,
       mode: 'ai',
       paperSourceName: paperName,
       slidesSourceName: slidesName,
@@ -261,6 +272,7 @@ export async function analyzeTemplateReference(input: {
           : undefined,
       visualTemplate,
       documentPreview,
+      documentStructure,
     };
   }
 }

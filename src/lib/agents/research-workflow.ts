@@ -233,6 +233,8 @@ async function generateReportAndSlides(
     template ? 'Output template: ' + template.name : 'Output template: none. Design the structure from the user requirements and deliverable type.',
     template ? 'Reference handling: cite evidence IDs and follow any reference rules in the template.' : 'Reference handling: cite evidence IDs using a clear, consistent structure.',
     template ? 'Template requirements: ' + template.instructions : 'No predefined template is binding. The user requirements are the primary formatting instructions.',
+    template ? 'Template instructions describe layout and format only. Never reuse sample text, form labels, company names, course names, or example prose from the template as the report topic or body.' : '',
+    template ? 'For slides, vary layouts: use a cover, thesis/overview, evidence, comparison, roadmap and conclusion where appropriate. Do not output only bullet lists.' : 'For slides, vary layouts instead of making every slide a text list.',
     '',
     'Evidence:',
     evidenceContext(evidence),
