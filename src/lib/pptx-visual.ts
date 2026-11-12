@@ -64,6 +64,12 @@ function fillFromShape(xml: string): string | undefined {
   return solid ? colorFrom(solid) : undefined;
 }
 
+function opacityFrom(xml: string): number | undefined {
+  const alpha = xml.match(/<a:alpha\b[^>]*val="(\d+)"/)?.[1];
+  if (!alpha) return undefined;
+  return Math.max(0, Math.min(1, Number(alpha) / 100000));
+}
+
 function strokeFromShape(xml: string): string | undefined {
   const line = xml.match(/<a:ln\b[^>]*>([\s\S]*?)<\/a:ln>/)?.[1];
   return line ? colorFrom(line) : undefined;
@@ -79,20 +85,37 @@ function shapeKind(xml: string): TemplateSlideElement['shape'] {
   return preset ? 'other' : undefined;
 }
 
-function fontFromShape(xml: string): Pick<TemplateSlideElement, 'fontSize' | 'fontFamily' | 'fontWeight' | 'color' | 'align'> {
-  const run = xml.match(/<a:rPr\b([^>]*)>([\s\S]*?)<\/a:rPr>/);
+function fontFromShape(xml: string): Pick<TemplateSlideElement, 'fontSize' | 'fontFamily' | 'fontWeight' | 'color' | 'align' | 'verticalAlign'> {
+  const paragraphs = [...xml.matchAll(/<a:p\b[^>]*>([\s\S]*?)<\/a:p>/g)];
+  const candidates: Array<{ size: number; properties: string; body: string }> = [];
+  for (const paragraph of paragraphs) {
+    const paragraphXml = paragraph[1] ?? '';
+    const paragraphRuns = [...paragraphXml.matchAll(/<a:rPr\b([^>]*)>([\s\S]*?)<\/a:rPr>/g)];
+    for (const run of paragraphRuns) {
+      const size = numberAttr(run[1], 'sz');
+      if (size) candidates.push({ size, properties: run[1], body: run[2] });
+    }
+  }
   const end = xml.match(/<a:endParaRPr\b([^>]*)>([\s\S]*?)<\/a:endParaRPr>/);
-  const properties = run?.[1] ?? end?.[1] ?? '';
-  const body = run?.[2] ?? end?.[2] ?? '';
-  const size = numberAttr(properties, 'sz');
+  if (!candidates.length && end) {
+    const size = numberAttr(end[1], 'sz');
+    if (size) candidates.push({ size, properties: end[1], body: end[2] });
+  }
+  // Use the largest run as the dominant style; mixed-size paragraphs are
+  // rendered more faithfully than falling back to the default 18pt.
+  const chosen = candidates.sort((left, right) => right.size - left.size)[0];
+  const properties = chosen?.properties ?? '';
+  const body = chosen?.body ?? '';
   const typeface = attr(body, 'typeface');
   const alignValue = attr(xml.match(/<a:pPr\b[^>]*>/)?.[0] ?? '', 'algn');
+  const anchorValue = attr(xml.match(/<a:bodyPr\b[^>]*>/)?.[0] ?? '', 'anchor');
   return {
-    fontSize: size ? Math.max(6, size / 100) : undefined,
+    fontSize: chosen?.size ? Math.max(6, chosen.size / 100) : undefined,
     fontFamily: typeface,
     fontWeight: attr(properties, 'b') === '1' ? 'bold' : 'normal',
     color: colorFrom(body),
     align: alignValue === 'ctr' ? 'center' : alignValue === 'r' ? 'right' : alignValue === 'l' ? 'left' : undefined,
+    verticalAlign: anchorValue === 'ctr' ? 'middle' : anchorValue === 'b' ? 'bottom' : anchorValue === 't' ? 'top' : undefined,
   };
 }
 
@@ -229,20 +252,32 @@ export async function extractPptxVisualTemplate(bytes: Uint8Array): Promise<Pptx
       const shapeWidth = Math.max(0.5, Math.min(width + 100, widthEmuShape / widthEmu * width));
       const shapeHeight = Math.max(0.5, Math.min(height + 100, heightEmuShape / heightEmu * height));
       if (fill || shape || text) {
-        elements.push({
-          id: `slide-${slideIndex + 1}-shape-${elements.length + 1}`,
-          type: text ? 'text' : 'shape',
-          x,
-          y,
-          width: shapeWidth,
-          height: shapeHeight,
-          text: text || undefined,
-          fill,
-          stroke: strokeFromShape(shapeXml),
-          shape,
-          zIndex: elements.length,
-          ...fontFromShape(shapeXml),
-        });
+        const duplicate = elements.some((existing) =>
+          existing.type === (text ? 'text' : 'shape')
+          && Math.abs(existing.x - x) < 1
+          && Math.abs(existing.y - y) < 1
+          && Math.abs(existing.width - shapeWidth) < 1
+          && Math.abs(existing.height - shapeHeight) < 1
+          && (existing.fill ?? '') === (fill ?? '')
+          && (existing.text ?? '') === (text || ''));
+        if (!duplicate) {
+          elements.push({
+            id: `slide-${slideIndex + 1}-shape-${elements.length + 1}`,
+            type: text ? 'text' : 'shape',
+            x,
+            y,
+            width: shapeWidth,
+            height: shapeHeight,
+            text: text || undefined,
+            fill,
+            fillOpacity: fill ? opacityFrom(shapeXml) : undefined,
+            stroke: strokeFromShape(shapeXml),
+            strokeOpacity: strokeFromShape(shapeXml) ? opacityFrom(shapeXml) : undefined,
+            shape,
+            zIndex: elements.length,
+            ...fontFromShape(shapeXml),
+          });
+        }
       }
       if (elements.length >= MAX_ELEMENTS_PER_SLIDE) break;
     }

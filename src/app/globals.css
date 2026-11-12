@@ -1252,7 +1252,7 @@ button {
 }
 
 .settings-layout {
-  max-width: 980px;
+  max-width: 1480px;
   margin: 0 auto;
   padding: 28px 30px 60px;
 }
@@ -1307,7 +1307,7 @@ button {
 .settings-form {
   display: grid;
   gap: 14px;
-  max-width: 760px;
+  max-width: none;
 }
 
 .settings-form label {
@@ -4308,8 +4308,8 @@ body.resizing-rows * {
 
 .visual-slide-editor {
   display: grid;
-  grid-template-columns: 170px minmax(0, 1fr);
-  min-height: 460px;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 560px;
   background: #f5f8f6;
 }
 
@@ -4343,7 +4343,7 @@ body.resizing-rows * {
 .visual-slide-thumbs {
   display: grid;
   gap: 8px;
-  max-height: 560px;
+  max-height: 680px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -4491,7 +4491,7 @@ body.resizing-rows * {
 }
 
 .visual-slide-stage.with-layers {
-  grid-template-columns: minmax(0, 1fr) 210px;
+  grid-template-columns: minmax(0, 1fr) 230px;
   gap: 14px;
 }
 
@@ -4507,7 +4507,7 @@ body.resizing-rows * {
 .visual-canvas {
   position: relative;
   width: 100%;
-  max-width: 880px;
+  max-width: 1200px;
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
@@ -4940,4 +4940,44 @@ body.resizing-rows * {
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
+}
+
+.visual-text-content {
+  display: block;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.visual-slide-editor.fullscreen {
+  position: fixed;
+  inset: 18px;
+  z-index: 1000;
+  min-height: 0;
+  overflow: hidden;
+  background: #eef3f0;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 18px;
+  box-shadow: 0 30px 90px rgba(16, 25, 23, 0.28);
+}
+
+.visual-slide-editor.fullscreen .visual-slide-stage {
+  min-height: 0;
+}
+
+.visual-slide-editor.fullscreen .visual-canvas {
+  max-width: 1500px;
+}
+
+.visual-slide-editor.fullscreen .visual-slide-thumbs {
+  max-height: calc(100vh - 150px);
+}
+
+.visual-slide-editor.fullscreen .visual-layers {
+  max-height: calc(100vh - 180px);
+}
+
+.visual-slide-editor.fullscreen .visual-canvas-frame {
+  align-items: center;
+  min-height: calc(100vh - 170px);
 }

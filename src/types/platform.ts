@@ -51,12 +51,15 @@ export interface TemplateSlideElement {
   height: number;
   text?: string;
   fill?: string;
+  fillOpacity?: number;
   stroke?: string;
+  strokeOpacity?: number;
   color?: string;
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: 'normal' | 'bold';
   align?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
   shape?: 'rect' | 'roundRect' | 'ellipse' | 'line' | 'triangle' | 'other';
   imageDataUrl?: string;
   imageStoragePath?: string;

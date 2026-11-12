@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Eye, EyeOff, Layers3, Type } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Expand, Eye, EyeOff, Layers3, Minimize2, Type } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { TemplateSlideBlueprint, TemplateSlideElement } from '@/types/platform';
@@ -15,8 +15,18 @@ function imageUrl(element: TemplateSlideElement, templateId?: string): string | 
   return undefined;
 }
 
+function withOpacity(color: string | undefined, opacity: number | undefined): string | undefined {
+  if (!color) return undefined;
+  if (opacity === undefined || opacity >= 1) return color;
+  const hex = color.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return color;
+  return `#${hex}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`;
+}
+
 function styleFor(element: TemplateSlideElement, slideWidth: number, slideHeight: number): React.CSSProperties {
-  const border = element.stroke && element.stroke !== '#FFFFFF' ? `1px solid ${element.stroke}` : undefined;
+  const border = element.stroke && element.stroke !== '#FFFFFF'
+    ? `1px solid ${withOpacity(element.stroke, element.strokeOpacity)}`
+    : undefined;
   return {
     left: `${element.x / slideWidth * 100}%`,
     top: `${element.y / slideHeight * 100}%`,
@@ -24,14 +34,23 @@ function styleFor(element: TemplateSlideElement, slideWidth: number, slideHeight
     height: `${element.height / slideHeight * 100}%`,
     zIndex: element.zIndex,
     color: element.color,
-    background: element.type === 'image' ? undefined : element.fill,
+    background: element.type === 'image' ? undefined : withOpacity(element.fill, element.fillOpacity),
     border,
     borderRadius: element.shape === 'roundRect' ? 12 : element.shape === 'ellipse' ? '50%' : undefined,
     fontFamily: element.fontFamily,
-    fontSize: element.fontSize ? `${element.fontSize / slideWidth * 100}cqw` : undefined,
+    fontSize: element.fontSize ? `${element.fontSize / slideWidth * 100}cqw` : '1.7cqw',
     fontWeight: element.fontWeight,
     textAlign: element.align,
+    display: element.type === 'text' ? 'flex' : undefined,
+    flexDirection: element.type === 'text' ? 'column' : undefined,
+    justifyContent: element.type === 'text'
+      ? element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
+      : undefined,
     objectFit: 'contain',
+    whiteSpace: 'pre-wrap',
+    overflow: 'hidden',
+    lineHeight: 1.2,
+    padding: element.type === 'text' ? '0.6% 0.8%' : undefined,
   };
 }
 
@@ -59,6 +78,7 @@ export function PptxSlideCanvas({
   const selected = slides[activeSlideIndex];
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [showLayers, setShowLayers] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
   const elements = useMemo(() => selected?.elements ?? [], [selected]);
   const selectedElement = elements.find((element) => element.id === selectedElementId);
 
@@ -160,7 +180,7 @@ export function PptxSlideCanvas({
   }
 
   return (
-    <div className="visual-slide-editor">
+    <div className={'visual-slide-editor' + (fullscreen ? ' fullscreen' : '')}>
       <aside className="visual-slide-rail">
         <div className="visual-rail-heading"><Layers3 size={15} /><span>页面</span><small>{slides.length}</small></div>
         <div className="visual-slide-thumbs">
@@ -211,6 +231,7 @@ export function PptxSlideCanvas({
               <button type="button" onClick={() => moveSlide(-1)} disabled={activeSlideIndex === 0} title="上移页面">↑</button>
               <button type="button" onClick={() => moveSlide(1)} disabled={activeSlideIndex === slides.length - 1} title="下移页面">↓</button>
               <button type="button" onClick={() => setShowLayers((value) => !value)} title={showLayers ? '隐藏元素列表' : '显示元素列表'}>{showLayers ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+              <button type="button" onClick={() => setFullscreen((value) => !value)} title={fullscreen ? '退出放大编辑' : '放大编辑'}>{fullscreen ? <Minimize2 size={15} /> : <Expand size={15} />}</button>
             </div>
           </header>
           <div className={'visual-slide-stage ' + (showLayers ? 'with-layers' : '')}>
@@ -229,14 +250,14 @@ export function PptxSlideCanvas({
                     return <div
                       key={element.id}
                       className={'visual-element image' + (selectedElementId === element.id ? ' selected' : '')}
-                      style={styleFor(element, slideWidth, slideHeight)}
+                      style={{ ...styleFor(element, slideWidth, slideHeight), background: selected.background || '#FFFFFF' }}
                       onClick={(event) => { event.stopPropagation(); setSelectedElementId(element.id); }}
                       onPointerDown={(event) => beginDrag(event, element, 'move')}
                       onPointerMove={continueDrag}
                       onPointerUp={endDrag}
                       onKeyDown={nudgeElement}
                       tabIndex={0}
-                    ><img src={imageUrl(element, templateId)} alt="" draggable={false} />{selectedElementId === element.id ? <span className="visual-resize-handle" onPointerDown={(event) => beginDrag(event, element, 'resize')} /> : null}</div>;
+                    ><img src={imageUrl(element, templateId)} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />{selectedElementId === element.id ? <span className="visual-resize-handle" onPointerDown={(event) => beginDrag(event, element, 'resize')} /> : null}</div>;
                   }
                   return <div
                     key={element.id}
@@ -248,7 +269,7 @@ export function PptxSlideCanvas({
                     onPointerUp={endDrag}
                     onKeyDown={nudgeElement}
                     tabIndex={0}
-                  >{element.type === 'text' ? element.text : null}{selectedElementId === element.id ? <span className="visual-resize-handle" onPointerDown={(event) => beginDrag(event, element, 'resize')} /> : null}</div>;
+                  >{element.type === 'text' ? <span className="visual-text-content">{element.text}</span> : null}{selectedElementId === element.id ? <span className="visual-resize-handle" onPointerDown={(event) => beginDrag(event, element, 'resize')} /> : null}</div>;
                 })}
               </div>
             </div>

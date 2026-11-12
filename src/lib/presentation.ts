@@ -123,8 +123,12 @@ function addTemplateSlide(
         y,
         w,
         h,
-        fill: element.fill ? { color: toHex(element.fill, 'FFFFFF') } : { color: 'FFFFFF', transparency: 100 },
-        line: element.stroke ? { color: toHex(element.stroke, 'FFFFFF'), width: 1 } : { color: 'FFFFFF', transparency: 100 },
+        fill: element.fill
+          ? { color: toHex(element.fill, 'FFFFFF'), transparency: Math.round((1 - (element.fillOpacity ?? 1)) * 100) }
+          : { color: 'FFFFFF', transparency: 100 },
+        line: element.stroke
+          ? { color: toHex(element.stroke, 'FFFFFF'), width: 1, transparency: Math.round((1 - (element.strokeOpacity ?? 1)) * 100) }
+          : { color: 'FFFFFF', transparency: 100 },
         ...(element.shape === 'roundRect' ? { rectRadius: 0.04 } : {}),
       });
       continue;
@@ -144,11 +148,11 @@ function addTemplateSlide(
         w,
         h,
         fontFace: element.fontFamily || 'Aptos',
-        fontSize: Math.max(8, Math.min(40, (element.fontSize ?? 16) * 0.72)),
+        fontSize: Math.max(8, Math.min(40, element.fontSize ?? 16)),
         bold: element.fontWeight === 'bold',
         color: toHex(element.color, '17211F'),
         align: element.align ?? 'left',
-        valign: 'middle',
+        valign: element.verticalAlign === 'middle' ? 'middle' : element.verticalAlign === 'bottom' ? 'bottom' : 'top',
         margin: 0.02,
         breakLine: false,
         fit: 'shrink',
