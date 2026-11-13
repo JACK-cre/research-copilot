@@ -282,6 +282,9 @@ class PgVectorStore implements VectorStore {
     try {
       await client.query('BEGIN');
       if (scope?.mode === 'cloud') {
+        if (!document.storagePath) {
+          throw new Error('资料原始文件路径缺失，无法保存到云端知识库。');
+        }
         await client.query(
           `INSERT INTO documents (id, workspace_id, owner_id, name, mime_type, size_bytes, chunk_count, status, storage_path, sha256, embedding_model, embedding_dimensions, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 'ready', $8, $9, $10, $11, $12)

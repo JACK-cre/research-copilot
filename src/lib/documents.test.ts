@@ -26,4 +26,18 @@ describe('document upload limits', () => {
       ai,
     })).rejects.toThrow('不是有效 PDF');
   });
+
+  it('preserves the stored source path for background ingestion', async () => {
+    const storagePath = 'workspace-1/documents/document-1/report.txt';
+    const parsed = await parseUploadBytes({
+      name: 'report.txt',
+      mimeType: 'text/plain',
+      bytes: new TextEncoder().encode('这是一段用于知识库后台解析测试的文本，长度需要足够生成向量分块并保存原始文件路径。'),
+      documentId: 'document-1',
+      storagePath,
+      ai,
+    });
+
+    expect(parsed.document.storagePath).toBe(storagePath);
+  });
 });

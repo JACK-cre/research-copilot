@@ -66,6 +66,7 @@ async function processJob(job: ClaimedIngestionJob): Promise<void> {
       mimeType: job.mimeType,
       bytes,
       documentId: job.documentId,
+      storagePath: job.storagePath,
       ai,
       onProgress: (stage, progress) => updateIngestionJobProgress(job.id, job.workerToken, stage, progress),
     });

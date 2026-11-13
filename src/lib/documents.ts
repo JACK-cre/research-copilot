@@ -38,6 +38,7 @@ export interface ParseUploadBytesInput {
   mimeType: string;
   bytes: Uint8Array;
   documentId?: string;
+  storagePath?: string;
   ai?: AiRuntimeConfig;
   onProgress?: (stage: IngestionJobStage, progress: number) => Promise<void> | void;
 }
@@ -85,6 +86,7 @@ export async function parseUploadBytes(input: ParseUploadBytesInput): Promise<Pa
     createdAt: new Date().toISOString(),
     status: 'ready',
     sha256: createHash('sha256').update(input.bytes).digest('hex'),
+    storagePath: input.storagePath,
     embeddingModel: ai.embeddingIdentity,
     embeddingDimensions: vectors[0]?.length ?? ai.embeddingDimensions,
   };
