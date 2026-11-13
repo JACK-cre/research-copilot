@@ -23,6 +23,17 @@ export function calculateKeywordScore(content: string, terms: string[]): number 
   return Math.min(1, coverage * 0.55 + specificity * 0.25 + frequency * 0.2 * lengthNorm);
 }
 
+export function calculateKnowledgeKeywordScore(
+  content: string,
+  documentName: string,
+  terms: string[],
+): number {
+  const contentScore = calculateKeywordScore(content, terms);
+  const titleScore = calculateKeywordScore(documentName, terms);
+  const combinedScore = calculateKeywordScore(`${documentName}\n${content}`, terms);
+  return Math.min(1, Math.max(contentScore, combinedScore, titleScore * 1.12));
+}
+
 export function fuseKnowledgeResults(
   semantic: KnowledgeSearchResult[],
   keyword: KnowledgeSearchResult[],

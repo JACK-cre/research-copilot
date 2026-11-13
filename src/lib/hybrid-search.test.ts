@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  calculateKnowledgeKeywordScore,
   calculateKeywordScore,
   extractKeywordTerms,
   fuseKnowledgeResults,
@@ -30,6 +31,16 @@ describe('hybrid knowledge retrieval', () => {
     const terms = ['rag', '引用', '检索'];
     expect(calculateKeywordScore('RAG 检索需要可靠引用', terms)).toBeGreaterThan(0.9);
     expect(calculateKeywordScore('完全无关的文本', terms)).toBe(0);
+  });
+
+  it('uses the document name as a strong lexical fallback', () => {
+    const terms = extractKeywordTerms('软件质量保障实验 测试用例生成来源');
+    const score = calculateKnowledgeKeywordScore(
+      '第一章 实验概述',
+      '软件质量保障实验.pdf',
+      terms,
+    );
+    expect(score).toBeGreaterThan(0.12);
   });
 
   it('promotes candidates recalled by both routes', () => {

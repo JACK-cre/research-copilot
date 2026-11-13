@@ -96,7 +96,7 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
       const candidates = fuseKnowledgeResults(semantic, keyword, recall.retrievalLimit, {
         semanticReliable: ai.embeddingModel !== 'local-hash-v1',
         semanticThreshold: 0.58,
-        keywordThreshold: 0.16,
+        keywordThreshold: 0.12,
       });
       return toolResult(await rerankKnowledgeResults({
         query,

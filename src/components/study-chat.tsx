@@ -49,8 +49,6 @@ export function StudyChat({
   const [messages, setMessages] = useState<StudyMessage[]>([]);
   const [optimisticUser, setOptimisticUser] = useState<StudyMessage | null>(null);
   const [streamingText, setStreamingText] = useState('');
-  const [streamingUser, setStreamingUser] = useState<StudyMessage | null>(null);
-  const [streamActive, setStreamActive] = useState(false);
   const [memorySummary, setMemorySummary] = useState('');
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingImage[]>([]);
@@ -106,7 +104,7 @@ export function StudyChat({
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, sending]);
+  }, [messages, optimisticUser, sending, streamingText]);
 
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
@@ -171,11 +169,9 @@ export function StudyChat({
       createdAt: new Date().toISOString(),
     };
     setOptimisticUser(optimisticMessage);
-    setStreamingUser(optimisticMessage);
     try {
       if (freeChat && !files.length) {
         setStreamingText('');
-        setStreamActive(true);
         const response = await fetch('/api/study/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -210,8 +206,6 @@ export function StudyChat({
         setMemorySummary(donePayload.memorySummary ?? '');
         setStreamingText('');
         setOptimisticUser(null);
-        setStreamingUser(null);
-        setStreamActive(false);
         window.localStorage.setItem(STORAGE_KEY, donePayload.conversationId);
         clearPending(pending);
         await loadConversations();
@@ -228,7 +222,6 @@ export function StudyChat({
       if (!response.ok) throw new Error(payload.error || '发送失败');
       setConversationId(payload.conversationId);
       setOptimisticUser(null);
-      setStreamingUser(null);
       setMessages(payload.messages ?? []);
       setMemorySummary(payload.memorySummary ?? '');
       window.localStorage.setItem(STORAGE_KEY, payload.conversationId);
@@ -238,8 +231,6 @@ export function StudyChat({
       onError(error instanceof Error ? error.message : '发送失败');
       setDraft(message);
       setOptimisticUser(null);
-      setStreamingUser(null);
-      setStreamActive(false);
       setStreamingText('');
     } finally {
       setSending(false);
@@ -307,11 +298,7 @@ export function StudyChat({
         </div>
         <div className="study-thread" ref={listRef}>
           {memorySummary ? <div className="study-memory">更早的对话已压缩为记忆，本页仍显示完整记录。模型下次只会看到摘要和最近 4 轮原文。</div> : null}
-          {optimisticUser ? <article className={'study-bubble ' + optimisticUser.role} key={optimisticUser.id}>
-            <strong>你</strong>
-            <div className="study-message-content">{renderMessageContent(optimisticUser.content)}</div>
-          </article> : null}
-          {!streamActive && messages.length ? messages.map((item) => (
+          {messages.map((item) => (
             <article className={'study-bubble ' + item.role} key={item.id}>
               <strong>{item.role === 'user' ? '你' : item.toolTrace?.length ? '复习助手' : '助手'}</strong>
               {item.attachments?.length && conversationId ? (
@@ -327,14 +314,19 @@ export function StudyChat({
               {item.toolTrace?.length ? <div className="tool-chip-row">{item.toolTrace.map((trace, index) => <span key={item.id + trace.name + index}>{trace.name} · {trace.summary}</span>)}</div> : null}
               {item.citations?.length ? <div className="study-cites">{item.citations.map((citation) => citation.url ? <a key={citation.id} href={citation.url} target="_blank" rel="noreferrer">{citation.id} {citation.title}</a> : <span key={citation.id}>{citation.id} {citation.title}</span>)}</div> : null}
             </article>
-          )) : (
+          ))}
+          {optimisticUser ? <article className={'study-bubble ' + optimisticUser.role} key={optimisticUser.id}>
+            <strong>你</strong>
+            <div className="study-message-content">{renderMessageContent(optimisticUser.content)}</div>
+          </article> : null}
+          {!messages.length && !optimisticUser && !streamingText && !sending ? (
             <div className="empty-state study-empty">
               <h2>{freeChat ? '随时聊聊' : '把知识库变成可复习的对话'}</h2>
               <p>{freeChat
                 ? '不检索知识库，也不上网。用你配置的对话模型直接回答，也可以插入、粘贴或拖入图片。同一会话会一直留在这个页面。'
                 : '可以问讲义里的概念、让它抽背、解释一段材料或图片，或结合公开论文做对比。助手会先调 MCP 工具检索，再回答。'}</p>
             </div>
-          )}
+          ) : null}
           {streamingText ? <article className="study-bubble assistant streaming"><strong>助手</strong><div className="study-message-content">{renderMessageContent(streamingText)}</div></article> : null}
           {sending && !streamingText ? <div className="study-bubble assistant pending"><LoaderCircle className="spin" size={16} />{freeChat ? '正在思考' : '正在检索并作答'}</div> : null}
         </div>

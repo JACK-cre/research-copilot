@@ -14,6 +14,22 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+export function normalizeStudyKnowledgeQuery(value: string): string {
+  const original = value.trim();
+  if (!original) return '';
+  let normalized = original
+    .replace(/(?:请)?(?:根据|结合|查询|检索)(?:一下)?(?:我(?:的)?|当前)?知识库(?:中|里|内|中的|里的|内的)?/g, ' ')
+    .replace(/[，。！？!?；;：:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  normalized = normalized
+    .replace(/^(?:请你?|麻烦你?|能否|可以|帮我|给我)\s*/u, '')
+    .replace(/^(?:讲讲|介绍(?:一下)?|解释(?:一下)?|说明(?:一下)?|分析(?:一下)?|概括(?:一下)?)\s*/u, '')
+    .replace(/(?:可以吗|行吗|好吗|谢谢)$/u, '')
+    .trim();
+  return normalized.length >= 2 ? normalized : original;
+}
+
 function detectChatIntent(message: string): ResearchIntent {
   if (/读后感|书评|读书/.test(message)) return 'book_review';
   if (/论文|综述|算法|模型|实验|arxiv|文献/.test(message)) return 'academic';
@@ -37,7 +53,7 @@ async function runStudyTool(
   }
   if (name === 'search_knowledge') {
     if (!input.useLibrary) return { summary: '未启用知识库', observations: '用户关闭了知识库检索。', citations: [] };
-    const query = asString(args.query) || asString(args.q);
+    const query = normalizeStudyKnowledgeQuery(asString(args.query) || asString(args.q));
     if (query.length < 2) return { summary: '查询过短', observations: '需要更具体的问题。', citations: [] };
     const matches = await callResearchTool<KnowledgeSearchResult[]>('search_knowledge', {
       query,

@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { getDatabasePool } from '@/lib/db';
-import { calculateKeywordScore, extractKeywordTerms } from '@/lib/hybrid-search';
+import { calculateKnowledgeKeywordScore, extractKeywordTerms } from '@/lib/hybrid-search';
 import { getDatabaseUrl, getEmbeddingIdentity } from '@/lib/platform-config';
 import { cosineSimilarity } from '@/lib/text';
 import type { DataScope } from '@/types/platform';
@@ -120,7 +120,11 @@ class JsonVectorStore implements VectorStore {
     if (!terms.length) return [];
     const database = await this.read();
     return database.chunks
-      .map((chunk) => ({ ...chunk, score: calculateKeywordScore(chunk.content, terms), routes: ['keyword' as const] }))
+      .map((chunk) => ({
+        ...chunk,
+        score: calculateKnowledgeKeywordScore(chunk.content, chunk.documentName, terms),
+        routes: ['keyword' as const],
+      }))
       .filter((chunk) => chunk.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, limit);
@@ -393,13 +397,18 @@ class PgVectorStore implements VectorStore {
     }>(scope?.mode === 'cloud'
       ? `SELECT id, document_id, document_name, content, page
          FROM document_chunks
-         WHERE workspace_id = $1 AND content ILIKE ANY($2::text[])
-         ORDER BY (SELECT COUNT(*) FROM unnest($2::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC
+         WHERE workspace_id = $1
+           AND (document_name ILIKE ANY($2::text[]) OR content ILIKE ANY($2::text[]))
+         ORDER BY
+           (SELECT COUNT(*) FROM unnest($2::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC,
+           (SELECT COUNT(*) FROM unnest($2::text[]) AS terms(pattern) WHERE document_name ILIKE pattern) DESC
          LIMIT $3`
       : `SELECT id, document_id, document_name, content, page
          FROM knowledge_chunks
-         WHERE content ILIKE ANY($1::text[])
-         ORDER BY (SELECT COUNT(*) FROM unnest($1::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC
+         WHERE document_name ILIKE ANY($1::text[]) OR content ILIKE ANY($1::text[])
+         ORDER BY
+           (SELECT COUNT(*) FROM unnest($1::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC,
+           (SELECT COUNT(*) FROM unnest($1::text[]) AS terms(pattern) WHERE document_name ILIKE pattern) DESC
          LIMIT $2`,
     scope?.mode === 'cloud'
       ? [scope.workspaceId, patterns, Math.max(limit * 4, 24)]
@@ -412,7 +421,7 @@ class PgVectorStore implements VectorStore {
         content: row.content,
         page: row.page ?? undefined,
         embedding: [],
-        score: calculateKeywordScore(row.content, terms),
+        score: calculateKnowledgeKeywordScore(row.content, row.document_name, terms),
         routes: ['keyword' as const],
       }))
       .filter((row) => row.score > 0)

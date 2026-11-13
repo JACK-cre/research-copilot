@@ -16,7 +16,7 @@ vi.mock('@/mcp/client', () => ({
   callResearchTool: (...args: unknown[]) => callResearchTool(...args),
 }));
 
-import { isFreeChatMode, runStudyTurn } from '@/lib/study-agent';
+import { isFreeChatMode, normalizeStudyKnowledgeQuery, runStudyTurn } from '@/lib/study-agent';
 import type { AiRuntimeConfig } from '@/types/platform';
 
 const ai = {
@@ -35,6 +35,13 @@ describe('isFreeChatMode', () => {
     expect(isFreeChatMode({ useLibrary: false, useWeb: false })).toBe(true);
     expect(isFreeChatMode({ useLibrary: true, useWeb: false })).toBe(false);
     expect(isFreeChatMode({ useLibrary: false, useWeb: true })).toBe(false);
+  });
+});
+
+describe('normalizeStudyKnowledgeQuery', () => {
+  it('removes conversational retrieval filler without dropping the topic', () => {
+    expect(normalizeStudyKnowledgeQuery('请根据知识库讲讲软件质量保障实验，测试用例的生成来源'))
+      .toBe('软件质量保障实验 测试用例的生成来源');
   });
 });
 
@@ -80,6 +87,38 @@ describe('runStudyTurn', () => {
     expect(result.content).toContain('遵义会议');
     expect(createChatTextCompletion).not.toHaveBeenCalled();
     expect(createChatJsonCompletion).toHaveBeenCalled();
+  });
+
+  it('searches the knowledge base with a normalized query', async () => {
+    createChatJsonCompletion
+      .mockResolvedValueOnce({
+        type: 'tool',
+        name: 'search_knowledge',
+        arguments: { query: '请根据知识库讲讲软件质量保障实验，测试用例的生成来源' },
+      })
+      .mockResolvedValueOnce({ type: 'final', content: '测试用例来自需求、设计与代码。', citations: ['K1'] });
+    callResearchTool.mockResolvedValue([{
+      id: 'chunk-1',
+      documentId: 'document-1',
+      documentName: '软件质量保障实验.pdf',
+      content: '测试用例可从需求规格、设计模型和代码结构中生成。',
+      embedding: [],
+      score: 0.9,
+    }]);
+
+    await runStudyTurn({
+      ai,
+      history: [],
+      message: '讲讲软件质量保障实验，测试用例的生成来源',
+      useLibrary: true,
+      useWeb: false,
+    });
+
+    expect(callResearchTool).toHaveBeenCalledWith('search_knowledge', {
+      query: '软件质量保障实验 测试用例的生成来源',
+      keywordQuery: '软件质量保障实验 测试用例的生成来源',
+      limit: 6,
+    }, undefined);
   });
 
   it('sends summary plus the latest four turns to the chat model', async () => {
