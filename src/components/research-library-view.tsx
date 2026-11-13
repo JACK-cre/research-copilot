@@ -40,6 +40,8 @@ export function ResearchLibraryView({
   const [expandedDocumentId, setExpandedDocumentId] = useState<string | null>(null);
   const [loadingEvidenceId, setLoadingEvidenceId] = useState<string | null>(null);
   const [evidenceByDocument, setEvidenceByDocument] = useState<Record<string, KnowledgeChunkPreview[]>>({});
+  const visibleJobs = jobs.filter((job) => job.status !== 'ready');
+  const activeJobCount = visibleJobs.filter((job) => job.status === 'queued' || job.status === 'processing').length;
 
   useEffect(() => {
     const ids = new Set(documents.map((document) => document.id));
@@ -76,9 +78,9 @@ export function ResearchLibraryView({
       <h2>{uploading ? '正在上传文件' : '添加研究资料'}</h2>
       <p>PDF、Markdown、TXT。上传后会在后台解析、识图和向量化，切换页面或刷新不会中断任务。单文件上限 500MB，单批上限 600MB</p>
     </section>
-    {jobs.length ? <section className="ingestion-panel">
-      <div className="section-title"><h3>后台解析任务</h3><span>{jobs.filter((job) => job.status === 'queued' || job.status === 'processing').length} 个进行中</span></div>
-      <div className="ingestion-list">{jobs.slice(0, 8).map((job) => <article className={`ingestion-row ${job.status}`} key={job.id}>
+    {visibleJobs.length ? <section className="ingestion-panel">
+      <div className="section-title"><h3>后台解析任务</h3><span>{activeJobCount} 个进行中</span></div>
+      <div className="ingestion-list">{visibleJobs.slice(0, 8).map((job) => <article className={`ingestion-row ${job.status}`} key={job.id}>
         <div className="ingestion-heading"><FileText size={15} /><strong title={job.fileName}>{job.fileName}</strong><span>{job.status === 'ready' ? `${job.chunkCount} 块` : job.status === 'failed' ? '失败' : job.status === 'cancelled' ? '已取消' : `${job.progress}%`}</span></div>
         <div className="ingestion-progress"><span style={{ width: `${job.status === 'ready' ? 100 : job.progress}%` }} /></div>
         <div className="ingestion-meta"><small>{job.status === 'queued' ? '排队中' : job.stage === 'reading' ? '读取文件' : job.stage === 'extracting' ? '解析正文与图片' : job.stage === 'vectorizing' ? '生成向量' : job.stage === 'saving' ? '写入知识库' : job.status === 'ready' ? '已可用' : job.error || '解析失败'}</small>{job.status === 'failed' || job.status === 'cancelled' ? <button type="button" onClick={() => void onRetryJob(job.id).catch((error) => onError(error instanceof Error ? error.message : '重试失败'))}>重试</button> : job.status === 'queued' || job.status === 'processing' ? <button type="button" onClick={() => void onCancelJob(job.id).catch((error) => onError(error instanceof Error ? error.message : '取消失败'))}>取消</button> : null}</div>
