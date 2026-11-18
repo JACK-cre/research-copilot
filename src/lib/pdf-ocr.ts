@@ -38,8 +38,8 @@ export function needsPdfOcr(text: string, totalPages: number): boolean {
 }
 
 export function mergePageText(digital: string, visual: string): string {
-  const text = normalizeWhitespace(digital);
-  const analysis = normalizeWhitespace(visual);
+  const text = digital.trim();
+  const analysis = visual.trim();
   if (!analysis) return text;
   if (!text) return analysis;
   if (analysis === text || text.includes(analysis)) return text;
@@ -98,31 +98,20 @@ async function destroyPdfDocument(pdf?: unknown): Promise<void> {
   if (typeof destroy === 'function') await destroy.call(pdf).catch(() => undefined);
 }
 
-function joinDigitalPages(pageTexts: string[]): string {
-  return pageTexts
-    .map((page, index) => {
-      const digital = normalizeWhitespace(page);
-      return digital ? `## 第 ${index + 1} 页\n${digital}` : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
+type PdfPage = { page: number; text: string };
 
-function finalizeExtractedText(text: string, skippedOcr: number, ai: AiRuntimeConfig): string {
-  let combined = text;
-  if (skippedOcr) {
-    combined += `\n\n（有 ${skippedOcr} 页图片未分析：已达本次看图上限或当前模型不支持识图。文字页已保留。）`;
-  }
-  if (normalizeWhitespace(combined).length < MIN_PAGE_TEXT_CHARS) {
+function finalizePages(pages: PdfPage[], skippedOcr: number, ai: AiRuntimeConfig) {
+  if (skippedOcr) console.info('pdf.ocr.skipped', { pages: skippedOcr });
+  if (pages.reduce((n, p) => n + p.text.trim().length, 0) < MIN_PAGE_TEXT_CHARS) {
     if (!canUsePdfOcr(ai)) {
       throw new Error('这是扫描版或图文混排 PDF，需要对话模型识图。请先在配置中心填写对话 API Key，并使用 glm-5.3-flash。');
     }
     throw new Error('没有从文件中提取到足够的文本。扫描页请改用更清晰的版本，或拆分后再上传。');
   }
-  return combined;
+  return pages;
 }
 
-export async function extractPdfText(bytes: Uint8Array, ai: AiRuntimeConfig): Promise<string> {
+export async function extractPdfPages(bytes: Uint8Array, ai: AiRuntimeConfig): Promise<PdfPage[]> {
   // PDF.js fake-worker transfers the input ArrayBuffer. Reusing the same
   // Uint8Array for extractText + getDocumentProxy throws:
   // "Cannot transfer object of unsupported type".
@@ -130,9 +119,9 @@ export async function extractPdfText(bytes: Uint8Array, ai: AiRuntimeConfig): Pr
   try {
     pdf = await getDocumentProxy(copyPdfBytes(bytes));
     const parsed = await extractText(pdf, { mergePages: false });
-    const pageTexts = parsed.text.map((page) => normalizeWhitespace(page));
+    const pageTexts = parsed.text;
     const limit = ocrPageLimit(parsed.totalPages);
-    const pages: string[] = [];
+    const pages: PdfPage[] = [];
     let ocrUsed = 0;
     let skippedOcr = 0;
 
@@ -162,14 +151,14 @@ export async function extractPdfText(bytes: Uint8Array, ai: AiRuntimeConfig): Pr
       }
 
       const combined = mergePageText(digital, visual);
-      if (combined) pages.push(`## 第 ${page} 页\n${combined}`);
+      if (combined) pages.push({ page, text: combined });
     }
 
-    return finalizeExtractedText(pages.join('\n\n'), skippedOcr, ai);
+    return finalizePages(pages, skippedOcr, ai);
   } catch (error) {
     if (!isPdfTransferError(error)) throw error;
     const parsed = await extractText(copyPdfBytes(bytes), { mergePages: false });
-    return finalizeExtractedText(joinDigitalPages(parsed.text), 0, ai);
+    return finalizePages(parsed.text.map((text, i) => ({ page: i + 1, text })), 0, ai);
   } finally {
     await destroyPdfDocument(pdf);
   }

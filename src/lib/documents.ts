@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { embedTexts } from '@/lib/embeddings';
-import { extractPdfText, isPdfTransferError } from '@/lib/pdf-ocr';
+import { extractPdfPages, isPdfTransferError } from '@/lib/pdf-ocr';
 import { getPlatformAiRuntimeConfig } from '@/lib/platform-config';
-import { chunkText, normalizeWhitespace } from '@/lib/text';
+import { structureChunks, type SourcePage } from '@/lib/chunk-context';
+import { logEvent } from '@/lib/observability';
 import type { AiRuntimeConfig } from '@/types/platform';
 import type { IngestionJobStage } from '@/types/ingestion';
 import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
@@ -21,16 +22,6 @@ const ALLOWED_TYPES = new Set([
 export interface ParsedUpload {
   document: KnowledgeDocument;
   chunks: KnowledgeChunk[];
-}
-
-function isPdf(file: File): boolean {
-  const extension = file.name.toLowerCase().split('.').pop();
-  return file.type === 'application/pdf' || extension === 'pdf';
-}
-
-async function parseFileText(file: File, bytes: Uint8Array, ai: AiRuntimeConfig): Promise<string> {
-  if (isPdf(file)) return extractPdfText(bytes, ai);
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
 }
 
 export interface ParseUploadBytesInput {
@@ -59,22 +50,26 @@ export async function parseUploadBytes(input: ParseUploadBytesInput): Promise<Pa
     throw new Error('文件扩展名是 PDF，但文件内容不是有效 PDF。');
   }
   await input.onProgress?.('extracting', 15);
-  const fileBytes = input.bytes.slice();
-  const file = new File([fileBytes.buffer], name, { type: mimeType });
-  let text: string;
+  const start = Date.now();
+  let pages: SourcePage[];
   try {
-    text = normalizeWhitespace(await parseFileText(file, input.bytes.slice(), ai));
+    pages = mimeType === 'application/pdf' || extension === 'pdf'
+      ? await extractPdfPages(input.bytes, ai)
+      : [{ text: new TextDecoder().decode(input.bytes) }];
   } catch (error) {
     if (isPdfTransferError(error)) {
       throw new Error('这份 PDF 解析失败，请重试一次。如果仍失败，可先导出为文字版 PDF 再上传。');
     }
     throw error;
   }
-  if (text.length < 40) throw new Error('没有从文件中提取到足够的文本。');
+  if (pages.reduce((n, p) => n + p.text.trim().length, 0) < 40) throw new Error('没有从文件中提取到足够的文本。');
 
-  const parts = chunkText(text);
+  const parts = structureChunks(pages, extension === 'md' || mimeType === 'text/markdown');
+  if (!parts.length) throw new Error('没有可索引的正文。');
+  const extractedAt = Date.now();
   await input.onProgress?.('vectorizing', 45);
-  const vectors = await embedTexts(parts, ai);
+  const vectors = await embedTexts(parts.map(p => [name, p.section, p.content].filter(Boolean).join('\n')), ai);
+  logEvent('library.index.prepared', {}, { documentId: input.documentId, chunkCount: parts.length, parseMs: extractedAt - start, embeddingMs: Date.now() - extractedAt });
   await input.onProgress?.('saving', 85);
   const documentId = input.documentId ?? randomUUID();
   const document: KnowledgeDocument = {
@@ -90,11 +85,11 @@ export async function parseUploadBytes(input: ParseUploadBytesInput): Promise<Pa
     embeddingModel: ai.embeddingIdentity,
     embeddingDimensions: vectors[0]?.length ?? ai.embeddingDimensions,
   };
-  const chunks: KnowledgeChunk[] = parts.map((content, index) => ({
+  const chunks: KnowledgeChunk[] = parts.map((part, index) => ({
     id: documentId + ':' + index,
     documentId,
     documentName: document.name,
-    content,
+    ...part,
     embedding: vectors[index],
   }));
 

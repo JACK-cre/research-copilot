@@ -5,10 +5,12 @@ import { getDatabasePool } from '@/lib/db';
 import { calculateKnowledgeKeywordScore, extractKeywordTerms } from '@/lib/hybrid-search';
 import { getDatabaseUrl, getEmbeddingIdentity } from '@/lib/platform-config';
 import { cosineSimilarity } from '@/lib/text';
+import { logEvent } from '@/lib/observability';
 import type { DataScope } from '@/types/platform';
 import type { KnowledgeChunk, KnowledgeChunkPreview, KnowledgeDocument } from '@/types/research';
 
 export interface KnowledgeSearchResult extends KnowledgeChunk {
+  followingText?: string;
   score: number;
   semanticScore?: number;
   keywordScore?: number;
@@ -31,6 +33,21 @@ export interface VectorStore {
   deleteDocument(id: string, scope?: DataScope): Promise<KnowledgeDocument | null>;
   search(queryVector: number[], limit: number, scope?: DataScope, embedding?: EmbeddingDescriptor): Promise<KnowledgeSearchResult[]>;
   lexicalSearch(query: string, limit: number, scope?: DataScope): Promise<KnowledgeSearchResult[]>;
+  followingChunks(hits: KnowledgeSearchResult[], scope?: DataScope): Promise<KnowledgeSearchResult[]>;
+}
+
+function nextChunkIds(hits: KnowledgeSearchResult[]) {
+  return hits.flatMap(c => c.chunkIndex == null ? [] : [`${c.documentId}:${c.chunkIndex + 1}`]);
+}
+
+function withFollowing(hits: KnowledgeSearchResult[], neighbors: KnowledgeChunkPreview[]) {
+  const byId = new Map(neighbors.map(c => [c.id, c]));
+  return hits.map(c => {
+    if (c.chunkIndex == null) return c;
+    const next = byId.get(`${c.documentId}:${c.chunkIndex + 1}`);
+    return next && next.documentId === c.documentId && next.page === c.page && next.section === c.section
+      ? { ...c, followingText: next.content.slice(0, 220) } : c;
+  });
 }
 
 interface JsonDatabase {
@@ -122,12 +139,17 @@ class JsonVectorStore implements VectorStore {
     return database.chunks
       .map((chunk) => ({
         ...chunk,
-        score: calculateKnowledgeKeywordScore(chunk.content, chunk.documentName, terms),
+        score: calculateKnowledgeKeywordScore(chunk.content, [chunk.documentName, chunk.section].filter(Boolean).join(' '), terms),
         routes: ['keyword' as const],
       }))
       .filter((chunk) => chunk.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, limit);
+  }
+
+  async followingChunks(hits: KnowledgeSearchResult[]) {
+    const ids = new Set(nextChunkIds(hits));
+    return ids.size ? withFollowing(hits, (await this.read()).chunks.filter(c => ids.has(c.id))) : hits;
   }
 }
 
@@ -141,6 +163,7 @@ class PgVectorStore implements VectorStore {
         'CREATE EXTENSION IF NOT EXISTS vector;',
         'CREATE TABLE IF NOT EXISTS knowledge_documents (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, size INTEGER NOT NULL, chunk_count INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL);',
         'CREATE TABLE IF NOT EXISTS knowledge_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, document_name TEXT NOT NULL, content TEXT NOT NULL, page INTEGER, embedding vector NOT NULL);',
+        'ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS section text, ADD COLUMN IF NOT EXISTS chunk_index integer;',
       ].join('\n');
       this.legacyInitialized = this.pool.query(schema).then(() => undefined);
     }
@@ -259,13 +282,15 @@ class PgVectorStore implements VectorStore {
       document_name: string;
       content: string;
       page: number | null;
+      section: string | null;
+      chunk_index: number | null;
     }>(scope?.mode === 'cloud'
-      ? `SELECT id, document_id, document_name, content, page
+      ? `SELECT id, document_id, document_name, content, page, section, chunk_index
          FROM document_chunks
          WHERE document_id = $1 AND workspace_id = $2
          ORDER BY length(content) DESC, id ASC
          LIMIT $3`
-      : `SELECT id, document_id, document_name, content, page
+      : `SELECT id, document_id, document_name, content, page, section, chunk_index
          FROM knowledge_chunks
          WHERE document_id = $1
          ORDER BY length(content) DESC, id ASC
@@ -277,12 +302,15 @@ class PgVectorStore implements VectorStore {
       documentName: row.document_name,
       content: row.content,
       page: row.page ?? undefined,
+      section: row.section ?? undefined,
+      chunkIndex: row.chunk_index ?? undefined,
     }));
   }
 
   async saveDocument(document: KnowledgeDocument, chunks: KnowledgeChunk[], scope?: DataScope): Promise<void> {
     if (scope?.mode !== 'cloud') await this.ensureLegacySchema();
     const client = await this.pool.connect();
+    const started = Date.now();
     try {
       await client.query('BEGIN');
       if (scope?.mode === 'cloud') {
@@ -296,26 +324,26 @@ class PgVectorStore implements VectorStore {
           [document.id, scope.workspaceId, scope.userId, document.name, document.type, document.size, document.chunkCount, document.storagePath, document.sha256, document.embeddingModel, document.embeddingDimensions, document.createdAt],
         );
         await client.query('DELETE FROM document_chunks WHERE document_id = $1 AND workspace_id = $2', [document.id, scope.workspaceId]);
-        for (const chunk of chunks) {
-          await client.query(
-            'INSERT INTO document_chunks (id, document_id, workspace_id, document_name, content, page, embedding) VALUES ($1, $2, $3, $4, $5, $6, $7::vector)',
-            [chunk.id, chunk.documentId, scope.workspaceId, chunk.documentName, chunk.content, chunk.page ?? null, '[' + chunk.embedding.join(',') + ']'],
-          );
-        }
       } else {
         await client.query(
           'INSERT INTO knowledge_documents (id, name, type, size, chunk_count, created_at) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, size = EXCLUDED.size, chunk_count = EXCLUDED.chunk_count, created_at = EXCLUDED.created_at',
           [document.id, document.name, document.type, document.size, document.chunkCount, document.createdAt],
         );
         await client.query('DELETE FROM knowledge_chunks WHERE document_id = $1', [document.id]);
-        for (const chunk of chunks) {
-          await client.query(
-            'INSERT INTO knowledge_chunks (id, document_id, document_name, content, page, embedding) VALUES ($1, $2, $3, $4, $5, $6::vector)',
-            [chunk.id, chunk.documentId, chunk.documentName, chunk.content, chunk.page ?? null, '[' + chunk.embedding.join(',') + ']'],
-          );
-        }
+      }
+      const cloud = scope?.mode === 'cloud';
+      for (let i = 0; i < chunks.length; i += 48) {
+        const params: unknown[] = [];
+        const values = chunks.slice(i, i + 48).map(c => {
+          const cols = [c.id, document.id, document.name, c.content, c.page ?? null, c.section ?? null, c.chunkIndex ?? null,
+            `[${c.embedding.join(',')}]`, ...(cloud ? [scope.workspaceId] : [])];
+          return '(' + cols.map((value, j) => `$${params.push(value)}${j === 7 ? '::vector' : ''}`).join(',') + ')';
+        });
+        await client.query(`INSERT INTO ${cloud ? 'document_chunks' : 'knowledge_chunks'}
+          (id, document_id, document_name, content, page, section, chunk_index, embedding${cloud ? ', workspace_id' : ''}) VALUES ${values.join(',')}`, params);
       }
       await client.query('COMMIT');
+      logEvent('library.index.saved', {}, { documentId: document.id, chunkCount: chunks.length, writeMs: Date.now() - started });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -355,9 +383,11 @@ class PgVectorStore implements VectorStore {
       document_name: string;
       content: string;
       page: number | null;
+      section: string | null;
+      chunk_index: number | null;
       score: number;
     }>(scope?.mode === 'cloud'
-      ? `SELECT c.id, c.document_id, c.document_name, c.content, c.page,
+      ? `SELECT c.id, c.document_id, c.document_name, c.content, c.page, c.section, c.chunk_index,
                 1 - (${vectorExpression} <=> $1::vector) AS score
          FROM document_chunks c
          JOIN documents d ON d.id = c.document_id AND d.workspace_id = c.workspace_id
@@ -367,7 +397,7 @@ class PgVectorStore implements VectorStore {
            AND vector_dims(c.embedding) = $4
          ORDER BY ${vectorExpression} <=> $1::vector
          LIMIT $5`
-      : 'SELECT id, document_id, document_name, content, page, 1 - (embedding <=> $1::vector) AS score FROM knowledge_chunks ORDER BY embedding <=> $1::vector LIMIT $2',
+      : 'SELECT id, document_id, document_name, content, page, section, chunk_index, 1 - (embedding <=> $1::vector) AS score FROM knowledge_chunks ORDER BY embedding <=> $1::vector LIMIT $2',
     scope?.mode === 'cloud'
       ? ['[' + queryVector.join(',') + ']', scope.workspaceId, embedding.model, queryDimensions, limit]
       : ['[' + queryVector.join(',') + ']', limit]);
@@ -379,6 +409,8 @@ class PgVectorStore implements VectorStore {
       page: row.page ?? undefined,
       embedding: [],
       score: Number(row.score),
+      section: row.section ?? undefined,
+      chunkIndex: row.chunk_index ?? undefined,
       routes: ['semantic'],
     }));
   }
@@ -394,18 +426,20 @@ class PgVectorStore implements VectorStore {
       document_name: string;
       content: string;
       page: number | null;
+      section: string | null;
+      chunk_index: number | null;
     }>(scope?.mode === 'cloud'
-      ? `SELECT id, document_id, document_name, content, page
+      ? `SELECT id, document_id, document_name, content, page, section, chunk_index
          FROM document_chunks
          WHERE workspace_id = $1
-           AND (document_name ILIKE ANY($2::text[]) OR content ILIKE ANY($2::text[]))
+           AND (document_name ILIKE ANY($2::text[]) OR section ILIKE ANY($2::text[]) OR content ILIKE ANY($2::text[]))
          ORDER BY
            (SELECT COUNT(*) FROM unnest($2::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC,
            (SELECT COUNT(*) FROM unnest($2::text[]) AS terms(pattern) WHERE document_name ILIKE pattern) DESC
          LIMIT $3`
-      : `SELECT id, document_id, document_name, content, page
+      : `SELECT id, document_id, document_name, content, page, section, chunk_index
          FROM knowledge_chunks
-         WHERE document_name ILIKE ANY($1::text[]) OR content ILIKE ANY($1::text[])
+         WHERE document_name ILIKE ANY($1::text[]) OR section ILIKE ANY($1::text[]) OR content ILIKE ANY($1::text[])
          ORDER BY
            (SELECT COUNT(*) FROM unnest($1::text[]) AS terms(pattern) WHERE content ILIKE pattern) DESC,
            (SELECT COUNT(*) FROM unnest($1::text[]) AS terms(pattern) WHERE document_name ILIKE pattern) DESC
@@ -421,12 +455,25 @@ class PgVectorStore implements VectorStore {
         content: row.content,
         page: row.page ?? undefined,
         embedding: [],
-        score: calculateKnowledgeKeywordScore(row.content, row.document_name, terms),
+        section: row.section ?? undefined,
+        chunkIndex: row.chunk_index ?? undefined,
+        score: calculateKnowledgeKeywordScore(row.content, [row.document_name, row.section].filter(Boolean).join(' '), terms),
         routes: ['keyword' as const],
       }))
       .filter((row) => row.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, limit);
+  }
+
+  async followingChunks(hits: KnowledgeSearchResult[], scope?: DataScope) {
+    const ids = nextChunkIds(hits);
+    if (!ids.length) return hits;
+    const cloud = scope?.mode === 'cloud';
+    if (!cloud) await this.ensureLegacySchema();
+    const { rows } = await this.pool.query(`SELECT id, document_id AS "documentId", content, page, section
+      FROM ${cloud ? 'document_chunks' : 'knowledge_chunks'} WHERE id = ANY($1::text[])${cloud ? ' AND workspace_id = $2' : ''}`,
+    cloud ? [ids, scope.workspaceId] : [ids]);
+    return withFollowing(hits, rows.map(r => ({ ...r, page: r.page ?? undefined, section: r.section ?? undefined })));
   }
 }
 

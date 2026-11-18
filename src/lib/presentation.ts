@@ -1,4 +1,5 @@
 import PptxGenJS from 'pptxgenjs';
+import { isMetricSlide, usableMetrics, descriptiveSlide } from '@/lib/slide-metrics';
 
 import type { TemplateSlideBlueprint, TemplateSlideElement } from '@/types/platform';
 import type { ResearchResult, SlideSpec, SlideVisualItem, SlideVisualLayout } from '@/types/research';
@@ -645,7 +646,7 @@ function addMetricsVisual(pptx: PptxGenJS, slide: PptxGenJS.Slide, spec: SlideSp
   items.forEach((item, index) => {
     const x = 0.82 + index * width;
     const accent = index % 2 === 0 ? COLORS.teal : COLORS.coral;
-    slide.addText(item.value || String(index + 1).padStart(2, '0'), {
+    slide.addText(item.value ?? '', {
       x,
       y: 2.0,
       w: width - 0.3,
@@ -796,7 +797,8 @@ export async function buildPresentation(result: ResearchResult): Promise<Uint8Ar
     bodyFontFace: 'Aptos',
   };
 
-  result.slides.forEach((spec, index) => {
+  result.slides.forEach((stored, index) => {
+    const spec = isMetricSlide(stored) && !usableMetrics(stored) ? descriptiveSlide(stored) : stored;
     const slide = pptx.addSlide();
     const slideNumber = index + 1;
     const visualTemplate = result.template?.blueprint;

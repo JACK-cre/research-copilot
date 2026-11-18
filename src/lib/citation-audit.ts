@@ -34,7 +34,8 @@ function auditCitationList(
 ): CitationAuditIssue[] {
   const issues: CitationAuditIssue[] = [];
   const seen = new Set<string>();
-  for (const citation of citations) {
+  const inline = [...content.matchAll(/\[([PKBW]\d+)\]/g)].map(m => m[1]);
+  for (const citation of [...citations, ...new Set(inline.filter(id => !citations.includes(id)))]) {
     if (seen.has(citation)) {
       issues.push({ location, citation, kind: 'duplicate', message: '同一位置重复引用。' });
       continue;
@@ -54,13 +55,13 @@ function auditCitationList(
 
 export function auditCitations(
   evidence: Evidence[],
-  sections: ReportSection[],
+  sections: Array<Omit<ReportSection, 'id'> & { id?: string }>,
   slides: SlideSpec[],
 ): CitationAudit {
   const evidenceById = new Map(evidence.map((item) => [item.id, item]));
   const issues = [
     ...sections.flatMap((section) => auditCitationList(section.citations, section.content, evidenceById, `章节：${section.title}`)),
-    ...slides.flatMap((slide) => auditCitationList(slide.citations, slide.keyPoints.join(' '), evidenceById, `幻灯片：${slide.title}`)),
+    ...slides.flatMap((slide) => auditCitationList(slide.citations, [...slide.keyPoints, ...(slide.visual?.items ?? []).map(i => [i.title, i.description, i.value].filter(Boolean).join(' '))].join(' '), evidenceById, `幻灯片：${slide.title}`)),
   ];
   const cited = new Set([...sections.flatMap((section) => section.citations), ...slides.flatMap((slide) => slide.citations)]);
   return {

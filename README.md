@@ -185,3 +185,8 @@ examples/              可上传的示例资料
 ```
 
 生成内容定位为有来源的研究草稿和汇报材料。方法、实验结果和关键引用应由使用者在正式发布前复核。
+# 知识库质量回归
+
+迁移 `012_chunk_provenance.sql` 增加可空的章节与分块序号，不改写旧向量。新版检索和摘录直接适用于旧资料；云端按需对单份资料执行「重建索引」后，新的分块可携带 PDF 页码或 Markdown 章节。日志 `library.index.prepared`、`library.index.saved` 可按 documentId 关联解析、Embedding 与写库耗时，不记录正文。
+
+自动测试使用合成材料，不会请求模型。要在**自己的本地评测库**测真实效果，可在仓库外准备 JSON 数组，例如 `[{"question":"测试用例依据哪些材料生成？","expectedText":"需求规格","documentName":"实验报告.pdf"},{"question":"材料是否给出了上线后的转化率？","expectedText":null}]`。建议包含明确答案、块尾、跨段和无答案四类，并手工标注真实原文。使用与该库匹配的 Embedding 配置，在允许向已配置供应商发送问题和片段后运行 `KNOWLEDGE_EVAL_CASES=/absolute/path/cases.json npm test -- src/lib/knowledge-live-eval.test.ts`。输出命中排名、Hit@8、无答案误返回率和 P95 耗时；不自动访问云端用户的私有工作区。

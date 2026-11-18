@@ -98,12 +98,13 @@ export function createResearchMcpServer(scope?: DataScope): McpServer {
         semanticThreshold: 0.58,
         keywordThreshold: 0.12,
       });
-      return toolResult(await rerankKnowledgeResults({
+      const selected = await rerankKnowledgeResults({
         query,
         candidates,
         ai,
         limit: recall.finalLimit,
-      }));
+      });
+      return toolResult(await store.followingChunks(selected, scope));
     },
   );
 

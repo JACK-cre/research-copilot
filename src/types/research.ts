@@ -64,6 +64,8 @@ export interface KnowledgeChunk {
   documentName: string;
   content: string;
   page?: number;
+  section?: string;
+  chunkIndex?: number;
   embedding: number[];
 }
 
@@ -84,6 +86,8 @@ export interface Evidence {
   sourceUrl?: string;
   year?: number;
   page?: number;
+  section?: string;
+  chunkIndex?: number;
   score: number;
   provider?: ExternalSourceProvider;
   relevanceReason?: string;
@@ -100,6 +104,7 @@ export interface ReportSection {
 
 export type SlideType =
   | "title"
+  | "text"
   | "thesis"
   | "landscape"
   | "comparison"

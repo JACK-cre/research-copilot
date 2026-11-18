@@ -14,43 +14,26 @@ export function chunkText(
   input: string,
   options: { maxChars?: number; overlap?: number } = {},
 ): string[] {
-  const maxChars = options.maxChars ?? 1200;
-  const overlap = Math.min(options.overlap ?? 180, Math.floor(maxChars / 3));
-  const text = input.replace(/\r\n/g, "\n").trim();
-
-  if (!text) return [];
-
-  const paragraphs = text
-    .split(/\n{2,}/)
-    .map(normalizeWhitespace)
-    .filter(Boolean);
+  const maxChars = Math.max(1, options.maxChars ?? 1200);
+  const overlap = Math.max(0, Math.min(options.overlap ?? 180, Math.floor(maxChars / 3)));
+  const text = input.replace(/\r\n?/g, '\n').trim();
   const chunks: string[] = [];
-  let current = "";
-
-  const flush = () => {
-    const normalized = normalizeWhitespace(current);
-    if (normalized) chunks.push(normalized);
-    current = normalized.slice(Math.max(0, normalized.length - overlap));
-  };
-
-  for (const paragraph of paragraphs) {
-    if (paragraph.length > maxChars) {
-      if (current) flush();
-      for (let start = 0; start < paragraph.length; start += maxChars - overlap) {
-        chunks.push(paragraph.slice(start, start + maxChars));
-      }
-      current = "";
-      continue;
+  for (let start = 0; start < text.length;) {
+    const window = text.slice(start, start + maxChars);
+    let end = window.length;
+    let carry = 0;
+    if (start + end < text.length) {
+      // Prefer a paragraph, then a sentence. Only overlap forced splits of unbroken text.
+      const floor = Math.floor(maxChars * 0.45);
+      const paragraph = window.lastIndexOf('\n');
+      const sentence = [...window.matchAll(/[。！？；]|[.!?;](?=\s)/g)].at(-1)?.index ?? -1;
+      if (paragraph >= floor) end = paragraph + 1;
+      else if (sentence >= floor) end = sentence + 1;
+      else carry = overlap;
     }
-
-    const candidate = current ? `${current}\n${paragraph}` : paragraph;
-    if (candidate.length > maxChars && current) flush();
-    current = current ? `${current}\n${paragraph}` : paragraph;
-  }
-
-  if (current) {
-    const normalized = normalizeWhitespace(current);
-    if (normalized && normalized !== chunks.at(-1)) chunks.push(normalized);
+    const part = window.slice(0, end).trim();
+    if (part) chunks.push(part);
+    start += end - carry;
   }
 
   return chunks;

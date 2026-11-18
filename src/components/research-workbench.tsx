@@ -34,6 +34,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type CSSP
 
 import { DEFAULT_RESEARCH_LAYOUT, LAYOUT_LIMITS, ResizeHandle, useResearchLayout } from '@/components/resize-handle';
 import { StudyChat } from '@/components/study-chat';
+import { isMetricSlide, usableMetrics, descriptiveSlide } from '@/lib/slide-metrics';
+import { locationLabel } from '@/lib/chunk-context';
 import { ResearchHistoryView } from '@/components/research-history-view';
 import { SettingsView } from '@/components/settings-view';
 import { ResearchLibraryView } from '@/components/research-library-view';
@@ -546,7 +548,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   }
 
   return (
-    <main className="app-shell">
+    <main className={view === 'study' ? 'app-shell study-shell' : 'app-shell'}>
       <aside className="sidebar">
         <div className="brand-block">
           <div className="brand-mark"><FlaskConical size={19} /></div>
@@ -741,10 +743,13 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
               {result?.evidence.length ? result.evidence.slice(0, 10).map((item) => (
                 <article className="evidence-item" key={item.id}>
                   <div><span className={'source-badge ' + item.kind}>{item.id}</span><span className="score">{item.retrievalRoutes?.map((route) => route === 'semantic' ? '语义' : route === 'keyword' ? '关键词' : '模型重排').join(' + ') || ''} {Math.round(item.score * 100)}%</span></div>
-                  <h3>{item.title}{item.page ? <small className="evidence-page">第 {item.page} 页</small> : null}</h3>
-                  <p>{item.excerpt}</p>
+                  <h3>{item.title}</h3>
+                  {locationLabel(item) && <small className="source-location">{locationLabel(item)}</small>}
+                  <blockquote className="source-passage">{item.excerpt}</blockquote>
+                  {(item.scoreDetails || item.relevanceReason) && <details className="source-ranking"><summary>相关性依据</summary>
                   {item.scoreDetails && item.kind === 'knowledge' ? <div className="score-breakdown">{typeof item.scoreDetails.semantic === 'number' ? <span>语义 {Math.round(item.scoreDetails.semantic * 100)}</span> : null}{typeof item.scoreDetails.keyword === 'number' ? <span>关键词 {Math.round(item.scoreDetails.keyword * 100)}</span> : null}{typeof item.scoreDetails.fused === 'number' ? <span>融合 {Math.round(item.scoreDetails.fused * 100)}</span> : null}{typeof item.scoreDetails.rerank === 'number' ? <span>模型 {Math.round(item.scoreDetails.rerank * 100)}</span> : null}</div> : null}
                   {item.relevanceReason ? <p className="relevance-reason">{item.relevanceReason}</p> : null}
+                  </details>}
                   {item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">查看来源<ArrowUpRight size={13} /></a> : null}
                 </article>
               )) : <div className="rail-empty"><Database size={20} /><span>暂无证据</span></div>}
@@ -772,7 +777,7 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
         <div><strong>{result.slides.length}</strong><span>幻灯片</span></div>
       </div>
       {result.citationAudit ? <section className={'citation-audit ' + (result.citationAudit.valid ? 'valid' : 'warning')}>
-        <div><Check size={16} /><strong>{result.citationAudit.valid ? '引用检查通过' : '发现引用问题'}</strong><span>已引用 {result.citationAudit.citedEvidence}/{result.citationAudit.totalEvidence} 条证据</span></div>
+        <div><Check size={16} /><strong>{result.citationAudit.valid ? '引用编号有效' : '发现无效引用编号'}</strong><span>已引用 {result.citationAudit.citedEvidence}/{result.citationAudit.totalEvidence} 条证据</span></div>
         {result.citationAudit.issues.length ? <ul>{result.citationAudit.issues.slice(0, 6).map((issue, index) => <li key={issue.location + issue.citation + index}><strong>{issue.location}</strong><span>{issue.citation} · {issue.message}</span></li>)}</ul> : null}
       </section> : null}
       {artifacts.length ? <section className="content-section">
@@ -831,7 +836,8 @@ function slidePreviewItems(slide: SlideSpec): SlideVisualItem[] {
     : slide.keyPoints.slice(0, 6).map((title, index) => ({ label: String(index + 1).padStart(2, '0'), title }));
 }
 
-function SlideVisualPreview({ slide }: { slide: SlideSpec }) {
+function SlideVisualPreview({ slide: stored }: { slide: SlideSpec }) {
+  const slide = isMetricSlide(stored) && !usableMetrics(stored) ? descriptiveSlide(stored) : stored;
   const layout = slidePreviewLayout(slide);
   const items = slidePreviewItems(slide);
   if (!layout) return <ul>{slide.keyPoints.slice(0, 5).map((point) => <li key={point}>{point}</li>)}</ul>;
@@ -840,7 +846,7 @@ function SlideVisualPreview({ slide }: { slide: SlideSpec }) {
   if (layout === 'process') return <div className="slide-visual-process">{items.slice(0, 5).map((item, index) => <div className="slide-visual-process-item" key={item.title + index}><b>{String(index + 1).padStart(2, '0')}</b><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
   if (layout === 'architecture') return <div className="slide-visual-architecture">{items.slice(0, 4).map((item, index) => <div className="slide-visual-architecture-item" key={item.title + index}><b>{item.label || `层 ${index + 1}`}</b><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
   if (layout === 'case-study') return <div className="slide-visual-case">{items.slice(0, 4).map((item, index) => <div className="slide-visual-case-item" key={item.title + index}><span>{item.label || ['背景', '负责', '方案', '产出'][index]}</span><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
-  if (layout === 'metrics') return <div className="slide-visual-metrics">{items.slice(0, 4).map((item, index) => <div key={item.title + index}><b>{item.value || String(index + 1).padStart(2, '0')}</b><strong>{item.title}</strong></div>)}</div>;
+  if (layout === 'metrics') return <div className="slide-visual-metrics">{items.slice(0, 4).map((item, index) => <div key={item.title + index}><b>{item.value}</b><strong>{item.title}</strong></div>)}</div>;
   return <div className="slide-visual-columns">{items.slice(0, 3).map((item, index) => <div key={item.title + index}><b>{String(index + 1).padStart(2, '0')}</b><strong>{item.label || item.title}</strong><small>{item.description || item.title}</small></div>)}</div>;
 }
 

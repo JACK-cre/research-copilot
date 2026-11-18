@@ -5,6 +5,7 @@ import type { GeneratedResearchOutput } from '@/types/research';
 export type GeneratedOutput = GeneratedResearchOutput;
 
 const SLIDE_TYPES = [
+  'text',
   'title',
   'thesis',
   'landscape',
@@ -33,6 +34,7 @@ const SLIDE_VISUAL_LAYOUTS = [
 ] as const;
 const LEGACY_SLIDE_TYPE_FALLBACKS = ['title', 'thesis', 'landscape', 'comparison', 'evidence', 'roadmap', 'conclusion'] as const;
 const SLIDE_TYPE_ALIASES: Record<string, typeof SLIDE_TYPES[number]> = {
+  text: 'text',
   title: 'title',
   cover: 'title',
   opening: 'title',

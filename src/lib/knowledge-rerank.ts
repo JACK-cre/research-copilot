@@ -1,6 +1,6 @@
 import { createChatJsonCompletion } from '@/lib/chat-client';
 import { diversifyKnowledgeResults } from '@/lib/evidence-diversity';
-import { excerpt } from '@/lib/text';
+import { matchedPassage } from '@/lib/chunk-context';
 import type { KnowledgeSearchResult } from '@/lib/vector-store';
 import type { AiRuntimeConfig } from '@/types/platform';
 
@@ -35,8 +35,8 @@ function parseRerankItems(value: unknown): ParsedRerankItem[] {
     if (!row || typeof row !== 'object') return [];
     const item = row as Record<string, unknown>;
     const id = typeof item.id === 'string' ? item.id.trim() : '';
-    const score = Number(item.score);
-    if (!id || !Number.isFinite(score)) return [];
+    const score = item.score;
+    if (!id || typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 1) return [];
     return [{
       id,
       score: Math.max(0, Math.min(1, score)),
@@ -52,7 +52,7 @@ export function finalizeKnowledgeRerank(
 ): KnowledgeSearchResult[] {
   const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const seen = new Set<string>();
-  return reranked.flatMap((item): KnowledgeSearchResult[] => {
+  const ranked = reranked.flatMap((item): KnowledgeSearchResult[] => {
     if (seen.has(item.id)) return [];
     seen.add(item.id);
     const candidate = byId.get(item.id);
@@ -73,8 +73,8 @@ export function finalizeKnowledgeRerank(
       routes: Array.from(routes),
     }];
   })
-    .sort((left, right) => right.score - left.score)
-    .slice(0, Math.max(1, Math.min(20, Math.floor(limit))));
+    .sort((left, right) => right.score - left.score);
+  return diversifyKnowledgeResults(ranked, Math.max(1, Math.min(20, Math.floor(limit))));
 }
 
 export async function rerankKnowledgeResults(input: {
@@ -87,16 +87,14 @@ export async function rerankKnowledgeResults(input: {
   const limit = input.limit ?? KNOWLEDGE_FINAL_RESULTS;
   if (!input.candidates.length) return [];
   if (!input.ai.apiKey) {
-    return input.candidates
-      .filter((candidate) => candidate.score >= 0.32)
-      .slice(0, limit);
+    return diversifyKnowledgeResults(input.candidates.filter(candidate => candidate.score >= 0.32), limit);
   }
 
   const aliases = new Map(input.candidates.map((candidate, index) => [`K${index + 1}`, candidate]));
   const candidateText = Array.from(aliases.entries()).map(([id, candidate]) => [
     `[${id}] document=${candidate.documentName}${candidate.page ? ` page=${candidate.page}` : ''}`,
     `route=${(candidate.routes ?? []).join(',')} fused_score=${(candidate.fusedScore ?? candidate.score).toFixed(3)}`,
-    `content=${excerpt(candidate.content, 600)}`,
+    `section=${candidate.section ?? ''} content=${matchedPassage(candidate.content, input.query, 600)}`,
   ].join('\n')).join('\n\n');
 
   try {
@@ -118,8 +116,10 @@ export async function rerankKnowledgeResults(input: {
       maxTokens: 4096,
       timeoutMs: input.timeoutMs ?? KNOWLEDGE_RERANK_TIMEOUT_MS,
     });
-    const ranked = finalizeKnowledgeRerank(input.candidates, parseRerankItems(parsed), limit);
-    if (ranked.length) return diversifyKnowledgeResults(ranked, limit);
+    const ratings = parseRerankItems(parsed).filter(r => aliases.has(r.id));
+    if (!ratings.length) throw new Error('重排未返回可识别的候选评分');
+    // Model ids are prompt-local aliases, not database chunk ids.
+    return finalizeKnowledgeRerank(input.candidates, ratings.map(r => ({ ...r, id: aliases.get(r.id)!.id })), limit);
   } catch (error) {
     console.warn('Knowledge reranking failed; using fused retrieval scores.', error);
   }

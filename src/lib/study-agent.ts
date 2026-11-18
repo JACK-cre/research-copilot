@@ -4,6 +4,7 @@ import { normalizeStudyAction } from '@/lib/generated-output';
 import { callResearchTool } from '@/mcp/client';
 import { studyAttachmentLabel } from '@/lib/study-images';
 import { excerpt } from '@/lib/text';
+import { evidencePassage, locationLabel } from '@/lib/chunk-context';
 import type { AiRuntimeConfig, DataScope, StudyCitation, StudyMessage, StudyToolTrace } from '@/types/platform';
 import type { Paper, ResearchIntent } from '@/types/research';
 import type { KnowledgeSearchResult } from '@/lib/vector-store';
@@ -62,8 +63,8 @@ async function runStudyTool(
     }, input.scope);
     return {
       summary: `知识库命中 ${matches.length} 条`,
-      observations: matches.map((match, index) => `[K${index + 1}] ${match.documentName}: ${excerpt(match.content, 280)}`).join('\n\n') || '没有达到相关性标准的知识库片段。',
-      citations: matches.map((match, index) => ({ id: `K${index + 1}`, title: match.documentName })),
+      observations: matches.map((match, index) => `[K${index + 1}] ${match.documentName} ${locationLabel(match)}: ${evidencePassage(match, query, 360)}`).join('\n\n') || '没有达到相关性标准的知识库片段。',
+      citations: matches.map((match, index) => ({ id: `K${index + 1}`, title: [match.documentName, locationLabel(match)].filter(Boolean).join(' · ') })),
     };
   }
   if (name === 'search_sources' || name === 'search_arxiv') {

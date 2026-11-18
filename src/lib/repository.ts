@@ -368,7 +368,7 @@ export async function getStudyMessages(scope: DataScope, conversationId: string)
     `SELECT id, role, content, citations, tool_trace, attachments, created_at
      FROM study_messages
      WHERE workspace_id = $1 AND conversation_id = $2
-     ORDER BY created_at ASC`,
+     ORDER BY created_at ASC, CASE WHEN role = 'user' THEN 0 ELSE 1 END, id`,
     [scope.workspaceId, conversationId],
   );
   return result.rows.map((row) => ({

@@ -9,7 +9,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { DragEvent, FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { DragEvent, FormEvent, memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import {
   inferStudyImageMime,
@@ -30,12 +30,9 @@ function attachmentSrc(conversationId: string, storagePath: string): string {
   return `/api/study/${conversationId}/files?path=${encodeURIComponent(storagePath)}`;
 }
 
-function renderMessageContent(content: string) {
-  return content.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => {
-    const lines = paragraph.split('\n');
-    return <p key={index}>{lines.map((line, lineIndex) => <span key={lineIndex}>{line}{lineIndex < lines.length - 1 ? <br /> : null}</span>)}</p>;
-  });
-}
+const MessageBody = memo(function MessageBody({ content }: { content: string }) {
+  return <div className="study-message-content">{content.split(/\n{2,}/).filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}</div>;
+});
 
 export function StudyChat({
   onError,
@@ -58,6 +55,9 @@ export function StudyChat({
   const [dragging, setDragging] = useState(false);
   const freeChat = !useLibrary && !useWeb;
   const listRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  const navigationRevision = useRef(0);
+  const listRevision = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const restored = useRef(false);
 
@@ -67,20 +67,24 @@ export function StudyChat({
   }, [pending]);
 
   const loadConversations = useCallback(async () => {
+    const revision = ++listRevision.current;
     const response = await fetch('/api/study', { cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || '对话列表读取失败');
-    setConversations(payload.conversations ?? []);
+    if (revision === listRevision.current) setConversations(payload.conversations ?? []);
     return payload.conversations as StudyConversationSummary[] ?? [];
   }, []);
 
   const openConversation = useCallback(async (id: string) => {
+    const revision = ++navigationRevision.current;
     const response = await fetch('/api/study/' + id, { cache: 'no-store' });
     const payload = await response.json();
+    if (revision !== navigationRevision.current) return;
     if (!response.ok) {
       onError(payload.error || '对话读取失败');
       return;
     }
+    followLatest.current = true;
     setConversationId(id);
     setMessages(payload.messages ?? []);
     setMemorySummary(payload.memorySummary ?? '');
@@ -91,7 +95,7 @@ export function StudyChat({
     void (async () => {
       try {
         const items = await loadConversations();
-        if (restored.current) return;
+        if (restored.current || navigationRevision.current) return;
         restored.current = true;
         const saved = window.localStorage.getItem(STORAGE_KEY);
         const target = saved && items.some((item) => item.id === saved) ? saved : undefined;
@@ -102,9 +106,18 @@ export function StudyChat({
     })();
   }, [loadConversations, onError, openConversation]);
 
+  const syncBottom = useCallback(() => {
+    const el = listRef.current;
+    if (el && followLatest.current) el.scrollTop = el.scrollHeight;
+  }, []);
+  useLayoutEffect(syncBottom, [messages, optimisticUser, streamingText, memorySummary, syncBottom]);
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, optimisticUser, sending, streamingText]);
+    const el = listRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(syncBottom);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [syncBottom]);
 
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
@@ -155,6 +168,8 @@ export function StudyChat({
     event.preventDefault();
     const message = draft.trim();
     if (sending || (!message && !pending.length)) return;
+    navigationRevision.current++;
+    followLatest.current = true;
     const files = pending.map((item) => item.file);
     setDraft('');
     setSending(true);
@@ -208,7 +223,7 @@ export function StudyChat({
         setOptimisticUser(null);
         window.localStorage.setItem(STORAGE_KEY, donePayload.conversationId);
         clearPending(pending);
-        await loadConversations();
+        void loadConversations().catch(() => onError('回答已保存，对话列表刷新失败。'));
         return;
       }
       const form = new FormData();
@@ -226,7 +241,7 @@ export function StudyChat({
       setMemorySummary(payload.memorySummary ?? '');
       window.localStorage.setItem(STORAGE_KEY, payload.conversationId);
       clearPending(pending);
-      await loadConversations();
+      void loadConversations().catch(() => onError('回答已保存，对话列表刷新失败。'));
     } catch (error) {
       onError(error instanceof Error ? error.message : '发送失败');
       setDraft(message);
@@ -256,6 +271,8 @@ export function StudyChat({
   }
 
   function startNew() {
+    navigationRevision.current++;
+    followLatest.current = true;
     setConversationId(undefined);
     setMessages([]);
     setMemorySummary('');
@@ -275,14 +292,14 @@ export function StudyChat({
   return (
     <div className="study-layout">
       <aside className="study-rail">
-        <button className="button secondary" type="button" onClick={startNew}><Plus size={15} />新对话</button>
+        <button className="button secondary" type="button" disabled={sending} onClick={startNew}><Plus size={15} />新对话</button>
         {conversations.length ? conversations.map((item) => (
           <div className={'study-convo ' + (item.id === conversationId ? 'active' : '')} key={item.id}>
-            <button type="button" onClick={() => void openConversation(item.id)}>
+            <button type="button" disabled={sending} onClick={() => void openConversation(item.id)}>
               <strong>{item.title}</strong>
               <small>{item.messageCount} 条 · {new Date(item.updatedAt).toLocaleString('zh-CN')}</small>
             </button>
-            <button className="icon-button danger" type="button" onClick={() => void removeConversation(item.id)} aria-label={'删除 ' + item.title}><Trash2 size={14} /></button>
+            <button className="icon-button danger" type="button" disabled={sending} onClick={() => void removeConversation(item.id)} aria-label={'删除 ' + item.title}><Trash2 size={14} /></button>
           </div>
         )) : <div className="rail-empty"><MessageCircle size={18} /><span>还没有对话</span></div>}
       </aside>
@@ -296,7 +313,11 @@ export function StudyChat({
           </div>
           <span>{freeChat ? '只靠对话模型作答，不检索资料' : useLibrary && useWeb ? '结合知识库和公开来源作答' : useLibrary ? '只检索你的知识库' : '只检索公开来源'}</span>
         </div>
-        <div className="study-thread" ref={listRef}>
+        <div className="study-thread" ref={listRef} role="region" aria-label="对话记录" tabIndex={0}
+          onLoadCapture={syncBottom} onScroll={event => {
+            const el = event.currentTarget;
+            followLatest.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 32;
+          }}>
           {memorySummary ? <div className="study-memory">更早的对话已压缩为记忆，本页仍显示完整记录。模型下次只会看到摘要和最近 4 轮原文。</div> : null}
           {messages.map((item) => (
             <article className={'study-bubble ' + item.role} key={item.id}>
@@ -310,14 +331,14 @@ export function StudyChat({
                   ))}
                 </div>
               ) : null}
-              <div className="study-message-content">{renderMessageContent(item.content)}</div>
+              <MessageBody content={item.content} />
               {item.toolTrace?.length ? <div className="tool-chip-row">{item.toolTrace.map((trace, index) => <span key={item.id + trace.name + index}>{trace.name} · {trace.summary}</span>)}</div> : null}
               {item.citations?.length ? <div className="study-cites">{item.citations.map((citation) => citation.url ? <a key={citation.id} href={citation.url} target="_blank" rel="noreferrer">{citation.id} {citation.title}</a> : <span key={citation.id}>{citation.id} {citation.title}</span>)}</div> : null}
             </article>
           ))}
           {optimisticUser ? <article className={'study-bubble ' + optimisticUser.role} key={optimisticUser.id}>
             <strong>你</strong>
-            <div className="study-message-content">{renderMessageContent(optimisticUser.content)}</div>
+            <MessageBody content={optimisticUser.content} />
           </article> : null}
           {!messages.length && !optimisticUser && !streamingText && !sending ? (
             <div className="empty-state study-empty">
@@ -327,8 +348,8 @@ export function StudyChat({
                 : '可以问讲义里的概念、让它抽背、解释一段材料或图片，或结合公开论文做对比。助手会先调 MCP 工具检索，再回答。'}</p>
             </div>
           ) : null}
-          {streamingText ? <article className="study-bubble assistant streaming"><strong>助手</strong><div className="study-message-content">{renderMessageContent(streamingText)}</div></article> : null}
-          {sending && !streamingText ? <div className="study-bubble assistant pending"><LoaderCircle className="spin" size={16} />{freeChat ? '正在思考' : '正在检索并作答'}</div> : null}
+          {streamingText ? <article className="study-bubble assistant streaming"><strong>助手</strong><MessageBody content={streamingText} /></article> : null}
+          {optimisticUser && !streamingText ? <div className="study-bubble assistant pending" role="status"><LoaderCircle className="spin" size={16} />{freeChat ? '正在思考' : '正在检索并作答'}</div> : null}
         </div>
         <form
           className={'study-composer' + (dragging ? ' dragging' : '')}

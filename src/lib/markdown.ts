@@ -1,11 +1,12 @@
 import type { Evidence, Paper, ResearchResult } from '@/types/research';
+import { locationLabel } from '@/lib/chunk-context';
 
 function citationText(ids: string[]): string {
   return ids.map((id) => '[' + id + ']').join(' ');
 }
 
 function formatReference(item: Evidence, paper: Paper | undefined, style: string): string {
-  if (!paper) return item.title + (item.sourceUrl ? ' — ' + item.sourceUrl : '');
+  if (!paper) return [item.title, locationLabel(item), item.sourceUrl].filter(Boolean).join(' · ');
   const authors = paper.authors.map((author) => author.name).join(', ') || '作者不详';
   const url = paper.doi ? 'https://doi.org/' + paper.doi.replace(/^https?:\/\/doi\.org\//, '') : paper.url;
   const normalized = style.toUpperCase();
