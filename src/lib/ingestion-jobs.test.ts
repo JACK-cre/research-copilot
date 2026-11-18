@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { IngestionJob } from '@/types/ingestion';
+import { isIngestionJobVisible, type IngestionJob } from '@/types/ingestion';
 
 function job(overrides: Partial<IngestionJob> = {}): IngestionJob {
   return {
@@ -31,5 +31,11 @@ describe('ingestion job model', () => {
     const interrupted = job({ status: 'processing', attempts: 1 });
     expect(interrupted.documentId).toBe('doc-1');
     expect(interrupted.fileName).toBe('paper.pdf');
+  });
+
+  it('treats ready jobs as completed records rather than active task cards', () => {
+    const ready = job({ status: 'ready', stage: 'ready', progress: 100, chunkCount: 6 });
+    expect(isIngestionJobVisible(ready)).toBe(false);
+    expect(isIngestionJobVisible(job({ status: 'processing' }))).toBe(true);
   });
 });

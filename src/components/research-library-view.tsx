@@ -3,7 +3,7 @@
 import { BookOpen, ChevronDown, Download, Eye, FileText, LoaderCircle, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { IngestionJob } from '@/types/ingestion';
+import { isIngestionJobVisible, type IngestionJob } from '@/types/ingestion';
 import type { KnowledgeChunkPreview, KnowledgeDocument } from '@/types/research';
 
 function formatBytes(size: number): string {
@@ -40,7 +40,7 @@ export function ResearchLibraryView({
   const [expandedDocumentId, setExpandedDocumentId] = useState<string | null>(null);
   const [loadingEvidenceId, setLoadingEvidenceId] = useState<string | null>(null);
   const [evidenceByDocument, setEvidenceByDocument] = useState<Record<string, KnowledgeChunkPreview[]>>({});
-  const visibleJobs = jobs.filter((job) => job.status !== 'ready');
+  const visibleJobs = jobs.filter(isIngestionJobVisible);
   const activeJobCount = visibleJobs.filter((job) => job.status === 'queued' || job.status === 'processing').length;
 
   useEffect(() => {

@@ -16,3 +16,7 @@ export interface IngestionJob {
   createdAt: string;
   updatedAt: string;
 }
+
+export function isIngestionJobVisible(job: Pick<IngestionJob, 'status'>): boolean {
+  return job.status !== 'ready';
+}

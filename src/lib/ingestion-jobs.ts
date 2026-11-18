@@ -73,6 +73,7 @@ export async function listIngestionJobs(scope: DataScope, limit = 30): Promise<I
     `SELECT ${JOB_COLUMNS}
      FROM document_ingestion_jobs
      WHERE workspace_id = $1
+       AND status IN ('queued', 'processing', 'failed', 'cancelled')
      ORDER BY created_at DESC
      LIMIT $2`,
     [scope.workspaceId, Math.max(1, Math.min(100, limit))],
