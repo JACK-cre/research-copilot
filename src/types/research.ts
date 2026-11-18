@@ -105,7 +105,37 @@ export type SlideType =
   | "comparison"
   | "evidence"
   | "roadmap"
-  | "conclusion";
+  | "conclusion"
+  | "timeline"
+  | "process"
+  | "architecture"
+  | "case-study"
+  | "three-columns"
+  | "metrics"
+  | "quote";
+
+export type SlideVisualLayout =
+  | "timeline"
+  | "process"
+  | "architecture"
+  | "case-study"
+  | "three-columns"
+  | "metrics"
+  | "quote"
+  | "comparison";
+
+export interface SlideVisualItem {
+  label?: string;
+  title: string;
+  description?: string;
+  value?: string;
+}
+
+export interface SlideVisualPlan {
+  layout: SlideVisualLayout;
+  subtitle?: string;
+  items: SlideVisualItem[];
+}
 
 export interface SlideSpec {
   type: SlideType;
@@ -113,6 +143,7 @@ export interface SlideSpec {
   keyPoints: string[];
   citations: string[];
   speakerNotes: string;
+  visual?: SlideVisualPlan;
 }
 
 export interface GeneratedResearchOutput {

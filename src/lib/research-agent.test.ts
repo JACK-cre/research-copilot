@@ -62,6 +62,36 @@ describe('normalizeGeneratedResearchOutput', () => {
       keyPoints: ['主题'],
     });
   });
+
+  it('normalizes visual layout plans for native slide rendering', () => {
+    const output = normalizeGeneratedResearchOutput({
+      title: '实习答辩',
+      thesis: '按阶段呈现工作贡献。',
+      sections: [{ title: '概览', content: '内容', citations: [] }],
+      slides: [{
+        type: 'process',
+        title: '问题定位流程',
+        keyPoints: ['发现问题', '定位链路', '完成修复'],
+        visual: {
+          layout: 'workflow',
+          steps: [
+            { label: '01', title: '发现问题', description: '明确异常现象' },
+            { label: '02', title: '定位链路', description: '拆解上下游调用' },
+            { label: '03', title: '完成修复', description: '联调、灰度并复盘' },
+          ],
+        },
+      }],
+    });
+
+    expect(output.slides[0].visual).toEqual({
+      layout: 'process',
+      items: [
+        { label: '01', title: '发现问题', description: '明确异常现象' },
+        { label: '02', title: '定位链路', description: '拆解上下游调用' },
+        { label: '03', title: '完成修复', description: '联调、灰度并复盘' },
+      ],
+    });
+  });
 });
 
 
@@ -133,6 +163,8 @@ describe('runResearchAgent dynamic source-material route', () => {
     expect(result.evidence).toHaveLength(0);
     expect(result.title).toBe('实习生转正答辩');
     expect(result.slides.map((slide) => slide.title)).toContain('阶段推进');
+    expect(result.slides.some((slide) => slide.visual?.layout === 'timeline')).toBe(true);
+    expect(result.slides.some((slide) => slide.visual?.layout === 'case-study')).toBe(true);
     expect(JSON.stringify(result)).not.toContain('当前尚未获得可用证据');
     expect(JSON.stringify(result)).not.toContain('研究版图');
   });

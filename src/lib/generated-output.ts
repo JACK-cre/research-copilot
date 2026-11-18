@@ -4,7 +4,34 @@ import type { GeneratedResearchOutput } from '@/types/research';
 
 export type GeneratedOutput = GeneratedResearchOutput;
 
-const SLIDE_TYPES = ['title', 'thesis', 'landscape', 'comparison', 'evidence', 'roadmap', 'conclusion'] as const;
+const SLIDE_TYPES = [
+  'title',
+  'thesis',
+  'landscape',
+  'comparison',
+  'evidence',
+  'roadmap',
+  'conclusion',
+  'timeline',
+  'process',
+  'architecture',
+  'case-study',
+  'three-columns',
+  'metrics',
+  'quote',
+  'comparison',
+] as const;
+const SLIDE_VISUAL_LAYOUTS = [
+  'timeline',
+  'process',
+  'architecture',
+  'case-study',
+  'three-columns',
+  'metrics',
+  'quote',
+  'comparison',
+] as const;
+const LEGACY_SLIDE_TYPE_FALLBACKS = ['title', 'thesis', 'landscape', 'comparison', 'evidence', 'roadmap', 'conclusion'] as const;
 const SLIDE_TYPE_ALIASES: Record<string, typeof SLIDE_TYPES[number]> = {
   title: 'title',
   cover: 'title',
@@ -25,6 +52,44 @@ const SLIDE_TYPE_ALIASES: Record<string, typeof SLIDE_TYPES[number]> = {
   roadmap: 'roadmap',
   plan: 'roadmap',
   next: 'roadmap',
+  timeline: 'timeline',
+  process: 'process',
+  flow: 'process',
+  workflow: 'process',
+  architecture: 'architecture',
+  system: 'architecture',
+  'case-study': 'case-study',
+  case: 'case-study',
+  example: 'case-study',
+  'three-columns': 'three-columns',
+  'three columns': 'three-columns',
+  pillars: 'three-columns',
+  metrics: 'metrics',
+  metric: 'metrics',
+  quote: 'quote',
+  takeaway: 'quote',
+};
+
+const VISUAL_LAYOUT_ALIASES: Record<string, typeof SLIDE_VISUAL_LAYOUTS[number]> = {
+  timeline: 'timeline',
+  roadmap: 'timeline',
+  process: 'process',
+  flow: 'process',
+  workflow: 'process',
+  architecture: 'architecture',
+  system: 'architecture',
+  'case-study': 'case-study',
+  case: 'case-study',
+  example: 'case-study',
+  'three-columns': 'three-columns',
+  'three columns': 'three-columns',
+  pillars: 'three-columns',
+  metrics: 'metrics',
+  metric: 'metrics',
+  quote: 'quote',
+  takeaway: 'quote',
+  comparison: 'comparison',
+  compare: 'comparison',
 };
 
 const MAX_SECTIONS = 60;
@@ -48,6 +113,16 @@ const generatedOutputSchema = z.object({
       keyPoints: z.array(z.string().trim().min(1)).min(1).max(MAX_KEY_POINTS),
       citations: z.array(z.string()).default([]),
       speakerNotes: z.string().default(''),
+      visual: z.object({
+        layout: z.enum(SLIDE_VISUAL_LAYOUTS),
+        subtitle: z.string().trim().optional(),
+        items: z.array(z.object({
+          label: z.string().trim().optional(),
+          title: z.string().trim().min(1),
+          description: z.string().trim().optional(),
+          value: z.string().trim().optional(),
+        })).min(1).max(8),
+      }).optional(),
     }),
   ).min(1).max(MAX_SLIDES),
 });
@@ -74,7 +149,54 @@ function asTextList(value: unknown): string[] {
 function coerceSlideType(value: unknown, index: number): typeof SLIDE_TYPES[number] {
   const alias = SLIDE_TYPE_ALIASES[asText(value).toLowerCase()];
   if (alias) return alias;
-  return SLIDE_TYPES[Math.min(index, SLIDE_TYPES.length - 1)];
+  return LEGACY_SLIDE_TYPE_FALLBACKS[Math.min(index, LEGACY_SLIDE_TYPE_FALLBACKS.length - 1)];
+}
+
+function coerceVisualLayout(value: unknown): typeof SLIDE_VISUAL_LAYOUTS[number] | undefined {
+  return VISUAL_LAYOUT_ALIASES[asText(value).toLowerCase()];
+}
+
+function normalizeVisualItem(value: unknown, index: number): {
+  label?: string;
+  title: string;
+  description?: string;
+  value?: string;
+} {
+  if (typeof value === 'string') return { title: value };
+  const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    label: asText(item.label) || asText(item.role) || undefined,
+    title: asText(item.title) || asText(item.name) || asText(item.heading) || `要点 ${index + 1}`,
+    description: asText(item.description) || asText(item.detail) || asText(item.body) || asText(item.text) || undefined,
+    value: asText(item.value) || asText(item.metric) || undefined,
+  };
+}
+
+function normalizeSlideVisual(value: unknown): {
+  layout: typeof SLIDE_VISUAL_LAYOUTS[number];
+  subtitle?: string;
+  items: Array<{ label?: string; title: string; description?: string; value?: string }>;
+} | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const layout = coerceVisualLayout(raw.layout) ?? coerceVisualLayout(raw.type);
+  if (!layout) return undefined;
+  const rawItems = Array.isArray(raw.items)
+    ? raw.items
+    : Array.isArray(raw.steps)
+      ? raw.steps
+      : Array.isArray(raw.columns)
+        ? raw.columns
+        : Array.isArray(raw.nodes)
+          ? raw.nodes
+          : [];
+  const items = rawItems.map(normalizeVisualItem).filter((item) => item.title).slice(0, 8);
+  if (!items.length) return undefined;
+  return {
+    layout,
+    subtitle: asText(raw.subtitle) || asText(raw.description) || undefined,
+    items,
+  };
 }
 
 export function normalizeGeneratedResearchOutput(value: unknown): GeneratedOutput {
@@ -104,6 +226,7 @@ export function normalizeGeneratedResearchOutput(value: unknown): GeneratedOutpu
       keyPoints: keyPoints.slice(0, MAX_KEY_POINTS),
       citations: asTextList(slide.citations),
       speakerNotes: asText(slide.speakerNotes) || asText(slide.notes) || asText(slide.speaker_notes),
+      visual: normalizeSlideVisual(slide.visual ?? slide.visualPlan),
     };
   });
   return generatedOutputSchema.parse({

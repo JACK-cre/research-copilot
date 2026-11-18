@@ -290,12 +290,12 @@ async function generateReportAndSlides(
     'Template structure and style:',
     templateGenerationContext(template),
     'Map the current task content into the template structure. Preserve layout and visual hierarchy, but replace all sample content with task-specific content.',
-    'For slides, vary layouts and content forms where appropriate. Do not make every slide a dense text list.',
+    'For slides, first choose the most useful visual form for each page. Allowed visual layouts are timeline, process, architecture, case-study, three-columns, comparison, metrics, and quote. Return visual:{layout,subtitle?,items:[{label?,title,description?,value?}]} for any slide that benefits from a diagram. Use timeline for dates or stages, process for ordered actions, architecture for layers or system relationships, case-study for problem/approach/result, three-columns for capability groups, metrics only when the user supplied real numbers, and quote for a single core judgment. Do not make every slide a dense text list; keep each visual item concise and put detail in speakerNotes.',
     '',
     evidence.length ? 'Evidence:' : 'Evidence: none. Use the user material and do not fabricate citations.',
     evidence.length ? evidenceContext(evidence) : '',
     '',
-    'JSON fields: title, thesis, sections[{title,content,citations}], slides[{type,title,keyPoints,citations,speakerNotes}].',
+    'JSON fields: title, thesis, sections[{title,content,citations}], slides[{type,title,keyPoints,citations,speakerNotes,visual:{layout,subtitle?,items:[{label?,title,description?,value?}]}}].',
   ].filter(Boolean).join('\n');
 
   try {
@@ -338,6 +338,11 @@ function sourceMaterialSynthesis(request: ResearchRequest, taskPlan: TaskPlan): 
     .map((item) => `- ${item}`)
     .join('\n');
   const workSummary = /实习|转正|述职|工作总结|项目复盘|工作经历|答辩/.test(`${request.topic} ${request.requirements}`);
+  const visualItems = (items: string[], labelPrefix: string) => items.slice(0, 6).map((item, index) => ({
+    label: `${labelPrefix} ${String(index + 1).padStart(2, '0')}`,
+    title: item.slice(0, 36),
+    description: item.length > 36 ? item.slice(36, 96) : undefined,
+  }));
 
   const sections: GeneratedOutput['sections'] = workSummary ? [
     {
@@ -391,11 +396,11 @@ function sourceMaterialSynthesis(request: ResearchRequest, taskPlan: TaskPlan): 
   const slides: GeneratedOutput['slides'] = [
     { type: 'title', title: request.topic, keyPoints: [taskPlan.objective], citations: [], speakerNotes: '用一句话交代任务背景和本次表达重点。' },
     { type: 'thesis', title: workSummary ? '经历概览' : '目标与重点', keyPoints: overview, citations: [], speakerNotes: '只保留能够帮助听众快速建立上下文的信息。' },
-    ...(timeline.length ? [{ type: 'roadmap' as const, title: '阶段推进', keyPoints: timeline.slice(0, 6), citations: [], speakerNotes: '按真实时间或阶段说明工作演进。' }] : []),
-    { type: 'landscape', title: workSummary ? '重点工作版图' : '内容结构', keyPoints: representative.slice(0, 5), citations: [], speakerNotes: '按主题聚类，不照搬原文顺序。' },
-    { type: 'evidence', title: workSummary ? '代表性实践' : '关键内容', keyPoints: representative.slice(3, 8).length ? representative.slice(3, 8) : overview, citations: [], speakerNotes: '展开最能支撑主题的具体事项。' },
-    { type: 'comparison', title: workSummary ? '方法与能力' : '重点分析', keyPoints: (technical.length ? technical : outcomes.length ? outcomes : usablePoints).slice(0, 6), citations: [], speakerNotes: '强调方法、取舍和可验证的实际行动。' },
-    { type: 'conclusion', title: workSummary ? '成长与下一步' : '结论与下一步', keyPoints: ['总结核心价值与已形成的方法', '明确仍需补充或确认的信息', '给出与当前任务直接相关的下一步'], citations: [], speakerNotes: '不虚构未提供的结果或承诺。' },
+    ...(timeline.length ? [{ type: 'timeline' as const, title: '阶段推进', keyPoints: timeline.slice(0, 6), citations: [], speakerNotes: '按真实时间或阶段说明工作演进。', visual: { layout: 'timeline' as const, items: visualItems(timeline, '阶段') } }] : []),
+    { type: 'three-columns' as const, title: workSummary ? '重点工作版图' : '内容结构', keyPoints: representative.slice(0, 5), citations: [], speakerNotes: '按主题聚类，不照搬原文顺序。', visual: { layout: 'three-columns' as const, items: visualItems((technical.length ? technical : representative).slice(0, 3), '主线') } },
+    { type: 'case-study' as const, title: workSummary ? '代表性实践' : '关键内容', keyPoints: representative.slice(3, 8).length ? representative.slice(3, 8) : overview, citations: [], speakerNotes: '展开最能支撑主题的具体事项。', visual: { layout: 'case-study' as const, items: visualItems(representative.slice(3, 7).length ? representative.slice(3, 7) : overview, '实践') } },
+    { type: 'architecture' as const, title: workSummary ? '方法与能力' : '重点分析', keyPoints: (technical.length ? technical : outcomes.length ? outcomes : usablePoints).slice(0, 6), citations: [], speakerNotes: '强调方法、取舍和可验证的实际行动。', visual: { layout: 'architecture' as const, items: visualItems((technical.length ? technical : outcomes.length ? outcomes : usablePoints).slice(0, 4), '能力层') } },
+    { type: 'quote' as const, title: workSummary ? '成长与下一步' : '结论与下一步', keyPoints: ['总结核心价值与已形成的方法', '明确仍需补充或确认的信息', '给出与当前任务直接相关的下一步'], citations: [], speakerNotes: '不虚构未提供的结果或承诺。', visual: { layout: 'quote' as const, items: [{ title: '把真实工作沉淀为可复用的方法，再用结果和复盘验证价值。' }] } },
   ];
 
   return {
@@ -764,12 +769,13 @@ function previousGeneratedOutput(previous: ResearchResult): GeneratedOutput {
     title: previous.title,
     thesis: previous.thesis,
     sections: previous.sections.map(({ title, content, citations }) => ({ title, content, citations })),
-    slides: previous.slides.map(({ type, title, keyPoints, citations, speakerNotes }) => ({
+    slides: previous.slides.map(({ type, title, keyPoints, citations, speakerNotes, visual }) => ({
       type,
       title,
       keyPoints,
       citations,
       speakerNotes,
+      visual,
     })),
   };
 }
@@ -807,7 +813,7 @@ async function reviseWithModel(
     '',
     'Template structure and style:',
     templateGenerationContext(template),
-    'Preserve the template layout and visual hierarchy, but replace all sample content with content for the current task.',
+    'Preserve the template layout and visual hierarchy, but replace all sample content with content for the current task. Keep the same visual planning contract used above; do not revert a diagram page into a long bullet list.',
     '',
     previous.evidence.length ? 'Evidence:' : 'Evidence: none. Use the first-party material and do not fabricate citations.',
     previous.evidence.length ? evidenceContext(previous.evidence) : '',
@@ -815,7 +821,7 @@ async function reviseWithModel(
     'Current deliverable JSON:',
     JSON.stringify(previousGeneratedOutput(previous)),
     '',
-    'Return fields: title, thesis, sections[{title,content,citations}], slides[{type,title,keyPoints,citations,speakerNotes}].',
+    'Return fields: title, thesis, sections[{title,content,citations}], slides[{type,title,keyPoints,citations,speakerNotes,visual:{layout,subtitle?,items:[{label?,title,description?,value?}]}}].',
   ].filter(Boolean).join('\n');
   try {
     const generated = normalizeGeneratedResearchOutput(await createChatJsonCompletion({

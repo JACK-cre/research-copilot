@@ -43,6 +43,8 @@ import type {
   Paper,
   ResearchRequest,
   ResearchResult,
+  SlideVisualItem,
+  SlideSpec,
 } from '@/types/research';
 import type {
   AiSettingsSummary,
@@ -810,6 +812,38 @@ function Report({ result }: { result: ResearchResult }) {
   return <article className="report-document"><header><h2>{result.title}</h2><p>{result.thesis}</p></header>{result.sections.map((section, index) => <section key={section.id}><span className="section-number">{String(index + 1).padStart(2, '0')}</span><div><h3>{section.title}</h3><p>{section.content}</p>{section.citations.length ? <div className="citation-row">{section.citations.map((citation) => <span key={citation}>[{citation}]</span>)}</div> : null}</div></section>)}</article>;
 }
 
+function slidePreviewLayout(slide: SlideSpec): string | undefined {
+  if (slide.visual?.layout) return slide.visual.layout;
+  if (slide.type === 'timeline' || slide.type === 'roadmap') return 'timeline';
+  if (slide.type === 'process') return 'process';
+  if (slide.type === 'architecture') return 'architecture';
+  if (slide.type === 'case-study' || slide.type === 'evidence') return 'case-study';
+  if (slide.type === 'three-columns' || slide.type === 'landscape') return 'three-columns';
+  if (slide.type === 'metrics') return 'metrics';
+  if (slide.type === 'quote' || slide.type === 'thesis' || slide.type === 'conclusion') return 'quote';
+  if (slide.type === 'comparison') return 'comparison';
+  return undefined;
+}
+
+function slidePreviewItems(slide: SlideSpec): SlideVisualItem[] {
+  return slide.visual?.items?.length
+    ? slide.visual.items
+    : slide.keyPoints.slice(0, 6).map((title, index) => ({ label: String(index + 1).padStart(2, '0'), title }));
+}
+
+function SlideVisualPreview({ slide }: { slide: SlideSpec }) {
+  const layout = slidePreviewLayout(slide);
+  const items = slidePreviewItems(slide);
+  if (!layout) return <ul>{slide.keyPoints.slice(0, 5).map((point) => <li key={point}>{point}</li>)}</ul>;
+  if (layout === 'quote') return <div className="slide-visual-quote">{items[0]?.title}</div>;
+  if (layout === 'timeline') return <div className="slide-visual-timeline">{items.slice(0, 5).map((item, index) => <div className="slide-visual-timeline-item" key={item.title + index}><span>{item.label || String(index + 1).padStart(2, '0')}</span><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
+  if (layout === 'process') return <div className="slide-visual-process">{items.slice(0, 5).map((item, index) => <div className="slide-visual-process-item" key={item.title + index}><b>{String(index + 1).padStart(2, '0')}</b><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
+  if (layout === 'architecture') return <div className="slide-visual-architecture">{items.slice(0, 4).map((item, index) => <div className="slide-visual-architecture-item" key={item.title + index}><b>{item.label || `层 ${index + 1}`}</b><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
+  if (layout === 'case-study') return <div className="slide-visual-case">{items.slice(0, 4).map((item, index) => <div className="slide-visual-case-item" key={item.title + index}><span>{item.label || ['背景', '负责', '方案', '产出'][index]}</span><strong>{item.title}</strong><small>{item.description}</small></div>)}</div>;
+  if (layout === 'metrics') return <div className="slide-visual-metrics">{items.slice(0, 4).map((item, index) => <div key={item.title + index}><b>{item.value || String(index + 1).padStart(2, '0')}</b><strong>{item.title}</strong></div>)}</div>;
+  return <div className="slide-visual-columns">{items.slice(0, 3).map((item, index) => <div key={item.title + index}><b>{String(index + 1).padStart(2, '0')}</b><strong>{item.label || item.title}</strong><small>{item.description || item.title}</small></div>)}</div>;
+}
+
 function Slides({ result }: { result: ResearchResult }) {
-  return <div className="slide-grid">{result.slides.map((slide, index) => <article className={'slide-preview slide-' + slide.type} key={index}><div className="slide-top"><span>{String(index + 1).padStart(2, '0')}</span><Presentation size={14} /></div><h3>{slide.title}</h3><ul>{slide.keyPoints.slice(0, 5).map((point) => <li key={point}>{point}</li>)}</ul><footer>{citationText(slide.citations)}</footer></article>)}</div>;
+  return <div className="slide-grid">{result.slides.map((slide, index) => <article className={'slide-preview slide-' + slide.type} key={index}><div className="slide-top"><span>{String(index + 1).padStart(2, '0')}</span><Presentation size={14} /></div><h3>{slide.title}</h3><SlideVisualPreview slide={slide} /><footer>{citationText(slide.citations)}</footer></article>)}</div>;
 }
