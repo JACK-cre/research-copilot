@@ -272,7 +272,7 @@ export function pptxVisualTemplateToInstructions(template: PptxVisualTemplate): 
       `第 ${index + 1} 页：${slide.title}；布局 ${slide.layout}`,
       analysis?.speakerNotes ? `演讲备注：${analysis.speakerNotes.slice(0, 1200)}` : '',
       analysis?.semanticHints.length ? `页面元素：${analysis.semanticHints.join('、')}` : '',
-      analysis?.images.length ? `图片信息：${analysis.images.map((image) => [image.name, image.altText].filter(Boolean).join(' / ') || '未命名图片').join('；')}` : '',
+      analysis?.images.length ? `图片信息：${analysis.images.map((image) => [image.name, image.altText, image.semanticDescription].filter(Boolean).join(' / ') || '未命名图片').join('；')}` : '',
       analysis?.charts.length ? `图表信息：${analysis.charts.map((chart) => `${chart.type}${chart.title ? `（${chart.title}）` : ''}，${chart.seriesCount} 个系列`).join('；')}` : '',
       analysis?.tables.length ? `表格信息：${analysis.tables.map((table) => `${table.rows} 行 × ${table.columns} 列`).join('；')}` : '',
       analysis?.readingOrder.length ? `阅读顺序：${analysis.readingOrder.join(' → ')}` : '',

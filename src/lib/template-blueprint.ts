@@ -41,6 +41,7 @@ const pptxSlideAnalysisSchema = z.object({
     path: z.string().max(1000).optional(),
     width: z.number().min(0).max(10_000).optional(),
     height: z.number().min(0).max(10_000).optional(),
+    semanticDescription: z.string().max(3000).optional(),
   })).max(120).default([]),
   charts: z.array(z.object({
     type: z.string().max(100),

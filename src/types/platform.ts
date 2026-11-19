@@ -73,6 +73,7 @@ export interface TemplatePptxImageSummary {
   path?: string;
   width?: number;
   height?: number;
+  semanticDescription?: string;
 }
 
 export interface TemplatePptxChartSummary {

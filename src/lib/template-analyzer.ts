@@ -7,7 +7,7 @@ import mammoth from 'mammoth';
 import { extractText } from 'unpdf';
 import { z } from 'zod';
 
-import { createChatJsonCompletion } from '@/lib/chat-client';
+import { createChatJsonCompletion, createChatVisionCompletion, isVisionChatModel } from '@/lib/chat-client';
 import { cleanExtractedText, extractPptxReference } from '@/lib/template-text';
 import { extractPptxVisualTemplate, pptxVisualTemplateToInstructions, type PptxVisualTemplate } from '@/lib/pptx-visual';
 import { extractDocumentTemplatePreview, type DocumentTemplatePreview } from '@/lib/document-template-preview';
@@ -128,6 +128,42 @@ function defaultDocumentBlueprint(_preview: DocumentTemplatePreview): TemplateBl
   };
 }
 
+async function enrichPptxImagesWithVision(template: PptxVisualTemplate, ai: AiRuntimeConfig): Promise<PptxVisualTemplate> {
+  if (!ai.apiKey || !isVisionChatModel(ai.chatModel)) return template;
+  let enrichedSlides = 0;
+  const slides = [];
+  for (const slide of template.slides) {
+    const imageElements = (slide.elements ?? []).filter((element) => element.type === 'image' && element.imageDataUrl).slice(0, 4);
+    if (!imageElements.length || enrichedSlides >= 6) {
+      slides.push(slide);
+      continue;
+    }
+    try {
+      const raw = await createChatVisionCompletion({
+        ai,
+        system: '你是 PPT 版式分析器。只描述图片的视觉角色和可复用表达方式，不要猜测整份 PPT 的主题，不要复制图片中的长段文字。',
+        prompt: `请按图片顺序返回简短中文描述，每行一个，格式为 [1] 描述。重点说明它是照片、流程图、架构图、数据图表、插画、图标还是装饰，以及生成新内容时应如何替换。共 ${imageElements.length} 张图片。`,
+        images: imageElements.map((element) => element.imageDataUrl as string),
+        maxTokens: 1600,
+        timeoutMs: 120_000,
+      });
+      const descriptions = [...raw.matchAll(/\[(\d+)\]\s*([^\n]+)/g)].map((match) => ({ index: Number(match[1]) - 1, text: match[2].trim() }));
+      const fallback = raw.replace(/\s+/g, ' ').trim().slice(0, 1200);
+      const analysis = slide.analysis ?? { images: [], charts: [], tables: [], readingOrder: [], semanticHints: [] };
+      const images = analysis.images.map((image, index) => {
+        const description = descriptions.find((item) => item.index === index)?.text || (index === 0 ? fallback : undefined);
+        return description ? { ...image, semanticDescription: description } : image;
+      });
+      slides.push({ ...slide, analysis: { ...analysis, images, semanticHints: [...analysis.semanticHints, `视觉识别：${fallback}`].slice(0, 50) } });
+      enrichedSlides += 1;
+    } catch (error) {
+      console.warn('PPTX image vision analysis skipped.', error);
+      slides.push(slide);
+    }
+  }
+  return { ...template, slides };
+}
+
 function mergeVisualTemplate(
   blueprint: TemplateBlueprint | undefined,
   visual: PptxVisualTemplate,
@@ -213,6 +249,7 @@ export async function analyzeTemplateReference(input: {
     fallback.description = '依据上传文档的版式、字段和段落结构提取';
   }
   if (!input.ai.apiKey) return fallback;
+  if (visualTemplate) visualTemplate = await enrichPptxImagesWithVision(visualTemplate, input.ai);
 
   const prompt = [
     'You analyze uploaded style templates only to infer reusable output-format requirements.',
