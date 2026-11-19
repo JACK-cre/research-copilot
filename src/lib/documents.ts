@@ -5,6 +5,7 @@ import { extractPdfPages, isPdfTransferError } from '@/lib/pdf-ocr';
 import { getPlatformAiRuntimeConfig } from '@/lib/platform-config';
 import { structureChunks, type SourcePage } from '@/lib/chunk-context';
 import { logEvent } from '@/lib/observability';
+import { extractOfficePages, isDocx, isPptx } from '@/lib/office-documents';
 import type { AiRuntimeConfig } from '@/types/platform';
 import type { IngestionJobStage } from '@/types/ingestion';
 import type { KnowledgeChunk, KnowledgeDocument } from '@/types/research';
@@ -17,6 +18,8 @@ const ALLOWED_TYPES = new Set([
   'text/plain',
   'text/markdown',
   'application/octet-stream',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ]);
 
 export interface ParsedUpload {
@@ -40,8 +43,8 @@ export async function parseUploadBytes(input: ParseUploadBytesInput): Promise<Pa
   const mimeType = input.mimeType || 'application/octet-stream';
   if (!name) throw new Error('文件名不能为空。');
   if (input.bytes.byteLength === 0) throw new Error('文件内容为空。');
-  if (!ALLOWED_TYPES.has(mimeType) && !/\.(pdf|md|txt)$/i.test(name)) {
-    throw new Error('仅支持 PDF、Markdown 和 TXT 文件。');
+  if (!ALLOWED_TYPES.has(mimeType) && !/\.(pdf|md|txt|docx|pptx)$/i.test(name)) {
+    throw new Error('仅支持 PDF、Markdown、TXT、DOCX 和 PPTX 文件。');
   }
 
   const extension = name.toLowerCase().split('.').pop();
@@ -55,6 +58,8 @@ export async function parseUploadBytes(input: ParseUploadBytesInput): Promise<Pa
   try {
     pages = mimeType === 'application/pdf' || extension === 'pdf'
       ? await extractPdfPages(input.bytes, ai)
+      : isDocx(name, mimeType) || isPptx(name, mimeType)
+        ? await extractOfficePages(input.bytes, name, mimeType)
       : [{ text: new TextDecoder().decode(input.bytes) }];
   } catch (error) {
     if (isPdfTransferError(error)) {
@@ -64,7 +69,7 @@ export async function parseUploadBytes(input: ParseUploadBytesInput): Promise<Pa
   }
   if (pages.reduce((n, p) => n + p.text.trim().length, 0) < 40) throw new Error('没有从文件中提取到足够的文本。');
 
-  const parts = structureChunks(pages, extension === 'md' || mimeType === 'text/markdown');
+  const parts = structureChunks(pages, extension === 'md' || mimeType === 'text/markdown' || isDocx(name, mimeType) || isPptx(name, mimeType));
   if (!parts.length) throw new Error('没有可索引的正文。');
   const extractedAt = Date.now();
   await input.onProgress?.('vectorizing', 45);

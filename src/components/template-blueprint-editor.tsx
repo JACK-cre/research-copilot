@@ -77,6 +77,7 @@ export function TemplateBlueprintEditor({
           slideHeight={value.style.slideHeight}
         />
         {value.slides.length ? <div className="template-page-roles">{value.slides.map((slide, index) => <span key={slide.id}><b>{index + 1}</b>{slide.layout === 'title' ? '封面' : slide.layout === 'thesis' ? '核心观点' : slide.layout === 'comparison' ? '对比' : slide.layout === 'evidence' ? '证据' : slide.layout === 'roadmap' ? '路线图' : slide.layout === 'conclusion' ? '结论' : '内容页'}</span>)}</div> : null}
+        {value.slides.some((slide) => slide.analysis && (slide.analysis.speakerNotes || slide.analysis.images.length || slide.analysis.charts.length || slide.analysis.tables.length)) ? <div className="template-pptx-analysis"><strong>已识别的 PPT 结构</strong><div>{value.slides.map((slide, index) => { const analysis = slide.analysis; if (!analysis) return null; return <span key={slide.id}><b>第 {index + 1} 页</b>{analysis.images.length ? `图片 ${analysis.images.length}` : ''}{analysis.charts.length ? ` · 图表 ${analysis.charts.length}` : ''}{analysis.tables.length ? ` · 表格 ${analysis.tables.length}` : ''}{analysis.speakerNotes ? ' · 有备注' : ''}</span>; })}</div></div> : null}
       </section> : null}
       {value.documentPages?.length ? <DocumentPagePreviewPanel pages={value.documentPages} /> : null}
       <button type="button" className="structure-toggle" onClick={() => setShowStructure((current) => !current)}>{showStructure ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<span>编辑结构与页面顺序</span><small>默认不展开，模板预览才是主要内容</small></button>

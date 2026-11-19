@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { apiErrorStatus, requireDataScope } from '@/lib/auth';
 import { removeStoredObjects } from '@/lib/cloud-storage';
 import { deleteResearchRun, getResearchResult, listArtifacts } from '@/lib/repository';
+import { diffResearchResults } from '@/lib/research-diff';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +16,9 @@ export async function GET(
     const { id } = await params;
     const result = await getResearchResult(scope, id);
     if (!result) return NextResponse.json({ error: '研究任务不存在。' }, { status: 404 });
-    return NextResponse.json({ result, artifacts: await listArtifacts(scope, id) });
+    const compareTo = new URL(_request.url).searchParams.get('compareTo');
+    const base = compareTo ? await getResearchResult(scope, compareTo) : null;
+    return NextResponse.json({ result, artifacts: await listArtifacts(scope, id), diff: base ? diffResearchResults(base, result) : undefined });
   } catch (error) {
     const message = error instanceof Error ? error.message : '研究任务读取失败。';
     return NextResponse.json({ error: message }, { status: apiErrorStatus(error) });

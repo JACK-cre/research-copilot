@@ -6,6 +6,25 @@ export const END = '__end__';
 type NodeFn<S> = (state: S) => Promise<Partial<S> | void> | Partial<S> | void;
 type Router<S> = (state: S) => string | string[];
 
+function mergePatch<S extends object>(state: S, patch: Partial<S>): S {
+  const merged = { ...state } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(patch)) {
+    const current = merged[key];
+    if (Array.isArray(current) && Array.isArray(value)) {
+      const seen = new Set(current.map(item => JSON.stringify(item)));
+      merged[key] = [...current, ...value.filter(item => {
+        const fingerprint = JSON.stringify(item);
+        if (seen.has(fingerprint)) return false;
+        seen.add(fingerprint);
+        return true;
+      })];
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged as S;
+}
+
 export class StateGraph<S extends object> {
   private readonly nodes = new Map<string, NodeFn<S>>();
   private readonly edges = new Map<string, string[]>();
@@ -57,9 +76,7 @@ export class StateGraph<S extends object> {
             return node(state);
           }));
 
-          for (const patch of patches) {
-            if (patch) state = { ...state, ...patch };
-          }
+          for (const patch of patches) if (patch) state = mergePatch(state, patch);
 
           frontier = batch.flatMap((name) => successors(name, state));
         }

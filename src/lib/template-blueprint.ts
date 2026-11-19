@@ -32,6 +32,27 @@ const slideElementSchema = z.object({
   zIndex: z.number().int().min(0).max(500),
 });
 
+const pptxSlideAnalysisSchema = z.object({
+  speakerNotes: z.string().max(30_000).optional(),
+  images: z.array(z.object({
+    id: z.string().max(200),
+    name: z.string().max(500).optional(),
+    altText: z.string().max(2000).optional(),
+    path: z.string().max(1000).optional(),
+    width: z.number().min(0).max(10_000).optional(),
+    height: z.number().min(0).max(10_000).optional(),
+  })).max(120).default([]),
+  charts: z.array(z.object({
+    type: z.string().max(100),
+    title: z.string().max(500).optional(),
+    seriesCount: z.number().int().min(0).max(100),
+    series: z.array(z.object({ name: z.string().max(500).optional(), categories: z.array(z.string().max(500)).max(200), values: z.array(z.number().finite()).max(200) })).max(100),
+  })).max(60).default([]),
+  tables: z.array(z.object({ rows: z.number().int().min(0).max(200), columns: z.number().int().min(0).max(100), cells: z.array(z.string().max(2000)).max(1000) })).max(60).default([]),
+  readingOrder: z.array(z.string().max(200)).max(200).default([]),
+  semanticHints: z.array(z.string().max(500)).max(50).default([]),
+});
+
 const documentPageSchema = z.object({
   index: z.number().int().min(1).max(200),
   title: z.string().max(200),
@@ -49,6 +70,7 @@ const slideSchema = z.object({
   background: z.string().max(40).optional(),
   elements: z.array(slideElementSchema).max(150).optional(),
   source: z.enum(['uploaded-pptx', 'generated']).optional(),
+  analysis: pptxSlideAnalysisSchema.optional(),
 });
 
 export const templateBlueprintSchema = z.object({

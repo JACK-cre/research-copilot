@@ -4,14 +4,15 @@ import { extractRelevanceTerms } from '@/lib/source-relevance';
 export interface SourcePage { text: string; page?: number }
 
 export function structureChunks(pages: SourcePage[], markdown: boolean) {
-  const chunks: Array<{ content: string; page?: number; section?: string; chunkIndex: number }> = [];
+  const chunks: Array<{ content: string; page?: number; section?: string; chunkIndex: number; parentContent?: string }> = [];
   for (const page of pages) {
     const headings: string[] = [];
     let lines: string[] = [];
     let fence = '';
     function flush() {
+      const parentContent = lines.join('\n').trim().slice(0, 6000) || undefined;
       for (const content of chunkText(lines.join('\n'))) {
-        chunks.push({ content, page: page.page, section: headings.filter(Boolean).join(' / ') || undefined, chunkIndex: chunks.length });
+        chunks.push({ content, page: page.page, section: headings.filter(Boolean).join(' / ') || undefined, parentContent, chunkIndex: chunks.length });
       }
       lines = [];
     }
@@ -53,12 +54,21 @@ export function matchedPassage(text: string, query: string, budget: number) {
     if (score > bestScore) { best = start; bestScore = score; }
     if (start + budget === text.length) break;
   }
-  return (best ? '…' : '') + text.slice(best, best + budget).trim() + (best + budget < text.length ? '…' : '');
+  let end = Math.min(text.length, best + budget);
+  if (end < text.length && !/[。！？!?；;.]/u.test(text[end - 1] ?? '')) {
+    const boundary = text.slice(end, Math.min(text.length, end + 80)).search(/[。！？!?；;.]/u);
+    if (boundary >= 0) end += boundary + 1;
+  }
+  return (best ? '…' : '') + text.slice(best, end).trim() + (end < text.length ? '…' : '');
 }
 
-export function evidencePassage(chunk: { content: string; followingText?: string }, query: string, budget: number) {
+export function evidencePassage(chunk: { content: string; followingText?: string; parentContent?: string }, query: string, budget: number) {
   const sample = matchedPassage(chunk.content, query, budget);
-  if (!chunk.followingText || sample.endsWith('…')) return sample;
+  const parent = chunk.parentContent && chunk.parentContent !== chunk.content
+    ? matchedPassage(chunk.parentContent, query, Math.min(280, Math.floor(budget / 2)))
+    : '';
+  const context = parent && parent !== sample ? `【章节上下文】${parent}\n` : '';
+  if (!chunk.followingText || sample.endsWith('…')) return `${context}${sample}`;
   // Only extend a hit that reaches the chunk boundary. The neighbor is context, not another hit.
-  return `${sample}\n${chunk.followingText}`;
+  return `${context}${sample}\n${chunk.followingText}`;
 }

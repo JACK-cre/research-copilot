@@ -75,11 +75,11 @@ export function ResearchLibraryView({
   }
 
   return <div className="library-layout">
-    <input ref={fileInput} hidden type="file" accept=".pdf,.md,.txt,application/pdf,text/plain,text/markdown" multiple onChange={(event) => void onUpload(event.target.files)} />
+    <input ref={fileInput} hidden type="file" accept=".pdf,.md,.txt,.docx,.pptx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple onChange={(event) => void onUpload(event.target.files)} />
     <section className="library-intro">
       <div><BookOpen aria-hidden="true" size={24} /><h2>研究资料库</h2></div>
       <button type="button" className="button primary" disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}{uploading ? '上传中' : '添加资料'}</button>
-      <p>PDF · Markdown · TXT <span>单文件 500 MB 以内，单批 600 MB 以内</span></p>
+      <p>PDF · Markdown · TXT · DOCX · PPTX <span>单文件 500 MB 以内，单批 600 MB 以内</span></p>
     </section>
     {visibleJobs.length ? <section className="ingestion-panel">
       <div className="section-title"><h3>后台解析任务</h3><span>{activeJobCount} 个进行中</span></div>

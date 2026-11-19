@@ -16,6 +16,7 @@ import {
   GitBranch,
   KeyRound,
   Library,
+  Activity,
   MessageCircle,
   LoaderCircle,
   LogOut,
@@ -38,6 +39,8 @@ import { isMetricSlide, usableMetrics, descriptiveSlide } from '@/lib/slide-metr
 import { locationLabel } from '@/lib/chunk-context';
 import { ResearchHistoryView } from '@/components/research-history-view';
 import { SettingsView } from '@/components/settings-view';
+import { MonitoringView } from '@/components/monitoring-view';
+import type { ResearchDiff } from '@/lib/research-diff';
 import { ResearchLibraryView } from '@/components/research-library-view';
 import type {
   KnowledgeChunkPreview,
@@ -60,7 +63,7 @@ import type {
 import type { IngestionJob } from '@/types/ingestion';
 import type { ResearchJob } from '@/types/research-job';
 
-type WorkspaceView = 'research' | 'study' | 'library' | 'history' | 'settings';
+type WorkspaceView = 'research' | 'study' | 'library' | 'history' | 'monitoring' | 'settings';
 type ResultTab = 'overview' | 'papers' | 'report' | 'slides';
 
 const initialRequest: ResearchRequest = {
@@ -139,6 +142,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
   const [ingestionJobs, setIngestionJobs] = useState<IngestionJob[]>([]);
   const [runs, setRuns] = useState<ResearchRunSummary[]>([]);
   const [artifacts, setArtifacts] = useState<ResearchArtifact[]>([]);
+  const [versionDiff, setVersionDiff] = useState<ResearchDiff | null>(null);
   const [templates, setTemplates] = useState<OutputTemplate[]>([]);
   const [running, setRunning] = useState(false);
   const [activeResearchJob, setActiveResearchJob] = useState<ResearchJob | null>(null);
@@ -228,6 +232,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.error || '研究结果读取失败');
           setResult(payload.result);
+          setVersionDiff(null);
           setRequest(payload.result.request);
           setArtifacts(payload.artifacts ?? []);
         })
@@ -309,6 +314,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       if (!response.ok) throw new Error(payload.error || '研究任务创建失败');
       if (!payload.queued) {
         setResult(payload);
+        setVersionDiff(null);
         setArtifacts([]);
         setStage(stages.length - 1);
         setNotice(payload.mode === 'model' ? '已使用模型完成生成' : '已使用本地生成器完成，可配置模型提升内容质量');
@@ -324,6 +330,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       const resultPayload = await resultResponse.json();
       if (!resultResponse.ok) throw new Error(resultPayload.error || '研究结果读取失败');
       setResult(resultPayload.result);
+      setVersionDiff(null);
       setRequest(resultPayload.result.request);
       setArtifacts(resultPayload.artifacts ?? []);
       setStage(stages.length - 1);
@@ -365,10 +372,12 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
         const resultPayload = await resultResponse.json();
         if (!resultResponse.ok) throw new Error(resultPayload.error || '研究结果读取失败');
         setResult(resultPayload.result);
+        setVersionDiff(null);
         setRequest(resultPayload.result.request);
         setArtifacts(resultPayload.artifacts ?? []);
       } else {
         setResult(payload);
+        setVersionDiff(null);
         setRequest(payload.request);
         setArtifacts([]);
       }
@@ -429,6 +438,34 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
     }
   }
 
+  async function downloadDocx() {
+    if (!result) return;
+    setExporting(true); setError('');
+    try {
+      const response = await fetch('/api/export/docx', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cloudEnabled ? { id: result.id } : result) });
+      if (!response.ok) { const payload = await response.json(); throw new Error(payload.error || 'DOCX 生成失败'); }
+      downloadBlob(await response.blob(), `research-report-v${result.version ?? 1}.docx`);
+      await refreshArtifacts(result.id);
+    } catch (error) { setError(error instanceof Error ? error.message : 'DOCX 生成失败'); }
+    finally { setExporting(false); }
+  }
+
+  async function downloadPdf() {
+    if (!result) return;
+    setExporting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/export/pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cloudEnabled ? { id: result.id } : result) });
+      if (!response.ok) { const payload = await response.json(); throw new Error(payload.error || 'PDF 生成失败'); }
+      downloadBlob(await response.blob(), 'research-report-v' + (result.version ?? 1) + '.pdf');
+      await refreshArtifacts(result.id);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'PDF 生成失败');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function downloadPptx() {
     if (!result) return;
     setExporting(true);
@@ -469,6 +506,11 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || '研究任务读取失败');
       setResult(payload.result);
+      if (payload.result.parentRunId) {
+        const diffResponse = await fetch('/api/research/' + id + '?compareTo=' + encodeURIComponent(payload.result.parentRunId), { cache: 'no-store' });
+        const diffPayload = await diffResponse.json().catch(() => ({}));
+        setVersionDiff(diffResponse.ok ? diffPayload.diff ?? null : null);
+      } else setVersionDiff(null);
       setRequest(payload.result.request);
       setArtifacts(payload.artifacts ?? []);
       setView('research');
@@ -571,6 +613,9 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           {cloudEnabled ? <button className={view === 'history' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('history')}>
             <History size={17} />研究历史<span className="nav-count">{runs.length}</span>
           </button> : null}
+          {cloudEnabled ? <button className={view === 'monitoring' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('monitoring')}>
+            <Activity size={17} />运行监控
+          </button> : null}
           {cloudEnabled ? <button className={view === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('settings')}>
             <Settings size={17} />配置中心
           </button> : null}
@@ -586,12 +631,14 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
       <section className="workspace">
         <header className="topbar">
           <div>
-            <span className="eyebrow">{view === 'research' ? '从主题到论文和 PPT' : view === 'study' ? '日常对话、知识库问答与复习' : view === 'library' ? '本地资料与证据' : view === 'history' ? '可回看的研究版本' : '模型、检索与模板'}</span>
-            <h1>{view === 'research' ? '研究任务' : view === 'study' ? '复习对话' : view === 'library' ? '知识库' : view === 'history' ? '研究历史' : '配置中心'}</h1>
+          <span className="eyebrow">{view === 'research' ? '从主题到论文和 PPT' : view === 'study' ? '日常对话、知识库问答与复习' : view === 'library' ? '本地资料与证据' : view === 'history' ? '可回看的研究版本' : view === 'monitoring' ? '队列、Worker 与 Agent 轨迹' : '模型、检索与模板'}</span>
+            <h1>{view === 'research' ? '研究任务' : view === 'study' ? '复习对话' : view === 'library' ? '知识库' : view === 'history' ? '研究历史' : view === 'monitoring' ? '运行监控' : '配置中心'}</h1>
           </div>
           {view === 'research' && result ? (
             <div className="top-actions">
               <button className="button secondary" onClick={() => void downloadMarkdown()} disabled={exporting}><FileText size={16} />导出文稿</button>
+              <button className="button secondary" onClick={() => void downloadDocx()} disabled={exporting}><FileText size={16} />导出 DOCX</button>
+              <button className="button secondary" onClick={() => void downloadPdf()} disabled={exporting}><FileText size={16} />导出 PDF</button>
               <button className="button primary" onClick={downloadPptx} disabled={exporting}>
                 {exporting ? <LoaderCircle className="spin" size={16} /> : <Presentation size={16} />}导出 PPT
               </button>
@@ -718,7 +765,7 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
                     </div>
 
                     <div className="tab-content">
-                      {tab === 'overview' ? <Overview result={result} yearCounts={yearCounts} artifacts={artifacts} /> : null}
+                      {tab === 'overview' ? <Overview result={result} yearCounts={yearCounts} artifacts={artifacts} versionDiff={versionDiff} /> : null}
                       {tab === 'papers' ? <Papers result={result} /> : null}
                       {tab === 'report' ? <Report result={result} /> : null}
                       {tab === 'slides' ? <Slides result={result} /> : null}
@@ -759,16 +806,17 @@ export function ResearchWorkbench({ cloudEnabled = false, userEmail, onSignOut }
           <StudyChat onError={setError} onNotice={setNotice} />
         ) : view === 'library' ? (
           <ResearchLibraryView documents={documents} uploading={uploading} fileInput={fileInput} onUpload={uploadFiles} onDelete={deleteDocument} onError={setError} cloudEnabled={cloudEnabled} jobs={ingestionJobs} onRetryJob={async (id: string) => { const response = await fetch('/api/library/jobs/' + id + '/retry', { method: 'POST' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '重试失败'); await loadLibrary(); }} onCancelJob={async (id: string) => { const response = await fetch('/api/library/jobs/' + id, { method: 'DELETE' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '取消失败'); await loadLibrary(); }} onReindex={async (id: string) => { const response = await fetch('/api/library/' + id + '/reindex', { method: 'POST' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '重建索引失败'); await loadLibrary(); }} />
-        ) : view === 'history' ? <ResearchHistoryView runs={runs} deletingRunId={deletingRunId} onOpen={openRun} onDelete={deleteRun} /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
+        ) : view === 'history' ? <ResearchHistoryView runs={runs} deletingRunId={deletingRunId} onOpen={openRun} onDelete={deleteRun} /> : view === 'monitoring' ? <MonitoringView /> : <SettingsView templates={templates} onTemplatesChanged={loadTemplates} onError={setError} onNotice={setNotice} />}
       </section>
     </main>
   );
 }
 
-function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; yearCounts: Array<[number, number]>; artifacts: ResearchArtifact[] }) {
+function Overview({ result, yearCounts, artifacts, versionDiff }: { result: ResearchResult; yearCounts: Array<[number, number]>; artifacts: ResearchArtifact[]; versionDiff: ResearchDiff | null }) {
   const maxCount = Math.max(1, ...yearCounts.map(([, count]) => count));
   return (
     <div className="overview-grid">
+      {versionDiff ? <section className="content-section version-diff"><div className="section-title"><h3>与上一版本的差异</h3><span>按章节、页面和证据展开</span></div><p>{versionDiff.titleChanged ? '标题已变化；' : ''}{versionDiff.thesisChanged ? '核心判断已变化；' : ''}章节新增 {versionDiff.sectionsAdded.length}、删除 {versionDiff.sectionsRemoved.length}、修改 {versionDiff.sectionsChanged.length}；PPT 新增 {versionDiff.slidesAdded.length}、删除 {versionDiff.slidesRemoved.length}、修改 {versionDiff.slidesChanged.length}；证据新增 {versionDiff.evidenceAdded.length}、删除 {versionDiff.evidenceRemoved.length}、变化 {versionDiff.evidenceChanged.length}。</p><div className="version-diff-groups">{[['章节', versionDiff.sectionDetails], ['PPT 页面', versionDiff.slideDetails]].map(([label, items]) => <div key={label as string}><strong>{label as string}</strong>{(items as ResearchDiff['sectionDetails']).length ? <ul>{(items as ResearchDiff['sectionDetails']).map((item) => <li key={item.status + item.title}><span className={'diff-status ' + item.status}>{item.status === 'added' ? '新增' : item.status === 'removed' ? '删除' : '修改'}</span><span>{item.title}</span></li>)}</ul> : <small>没有结构变化</small>}</div>)}</div></section> : null}
       {result.agentTrace?.length ? <section className="content-section"><div className="section-title"><h3>多智能体流程</h3><span>{result.agentTrace.length} 个节点</span></div><div className="agent-timeline">{result.agentTrace.map((step) => <div className={'agent-step ' + step.status} key={step.agent + step.title}><strong>{step.title}</strong><span>{step.summary}</span><small>{step.status === 'failed' ? '失败' : step.status === 'skipped' ? '跳过' : '完成'} · {step.durationMs}ms</small></div>)}</div></section> : null}
       <div className="metrics-band">
         <div><strong>{result.papers.length}</strong><span>有效外部来源</span></div>
@@ -779,6 +827,14 @@ function Overview({ result, yearCounts, artifacts }: { result: ResearchResult; y
       {result.citationAudit ? <section className={'citation-audit ' + (result.citationAudit.valid ? 'valid' : 'warning')}>
         <div><Check size={16} /><strong>{result.citationAudit.valid ? '引用编号有效' : '发现无效引用编号'}</strong><span>已引用 {result.citationAudit.citedEvidence}/{result.citationAudit.totalEvidence} 条证据</span></div>
         {result.citationAudit.issues.length ? <ul>{result.citationAudit.issues.slice(0, 6).map((issue, index) => <li key={issue.location + issue.citation + index}><strong>{issue.location}</strong><span>{issue.citation} · {issue.message}</span></li>)}</ul> : null}
+      </section> : null}
+      {result.claimAudit ? <section className={'citation-audit claim-audit ' + (result.claimAudit.valid ? 'valid' : 'warning')}>
+        <div><Check size={16} /><strong>{result.claimAudit.valid ? '论断支持检查通过' : '有论断需要人工确认'}</strong><span>检查 {result.claimAudit.totalClaims} 条高风险论断 · 未支持 {result.claimAudit.unsupportedClaims} · 数字问题 {result.claimAudit.numericIssues}</span></div>
+        {result.claimAudit.issues.length ? <ul>{result.claimAudit.issues.slice(0, 5).map((issue, index) => <li key={issue.location + issue.claim + index}><strong>{issue.location}</strong><span>{issue.message}</span></li>)}</ul> : null}
+      </section> : null}
+      {result.claimPlan?.length ? <section className="content-section claim-plan-panel">
+        <div className="section-title"><h3>论点与证据绑定</h3><span>{result.claimPlan.length} 条论点</span></div>
+        <div className="claim-plan-list">{result.claimPlan.slice(0, 8).map(claim => <article key={claim.id}><div><strong>{claim.id}</strong><span className={'claim-kind ' + claim.kind}>{claim.kind === 'first-party' ? '用户材料' : claim.kind === 'fact' ? '证据事实' : claim.kind === 'open-question' ? '待确认' : '分析'}</span><small>{Math.round(claim.confidence * 100)}%</small></div><p>{claim.claim}</p><footer>{claim.evidenceIds.length ? claim.evidenceIds.map(id => <span key={id}>[{id}]</span>) : '未绑定外部证据'}</footer></article>)}</div>
       </section> : null}
       {artifacts.length ? <section className="content-section">
         <div className="section-title"><h3>已归档成果</h3><span>{artifacts.length} 个文件</span></div>

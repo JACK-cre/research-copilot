@@ -15,7 +15,7 @@ describe('Postgres ingestion contract', () => {
     await getVectorStore().saveDocument(doc, chunks, scope);
     const inserts = query.mock.calls.filter(([q]) => q.startsWith('INSERT INTO document_chunks'));
     expect(inserts).toHaveLength(15);
-    expect(inserts[0][1].slice(0,9)).toEqual(['doc:0','doc','实验记录','段落 0',3,'方法',0,'[0.5]','workspace']);
+    expect(inserts[0][1].slice(0,10)).toEqual(['doc:0','doc','实验记录','段落 0',3,'方法',0,null,'[0.5]','workspace']);
     expect(query.mock.calls.at(-1)?.[0]).toBe('COMMIT');
   });
   it('rolls back the replacement if a later batch fails', async () => {

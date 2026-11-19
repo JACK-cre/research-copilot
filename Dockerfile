@@ -24,6 +24,7 @@ ENV PORT=3000
 
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs \
+  && apk add --no-cache libreoffice font-noto-cjk ttf-dejavu \
   && mkdir -p /app/data \
   && chown -R nextjs:nodejs /app/data
 

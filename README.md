@@ -30,7 +30,9 @@
 - 自定义模板跨会话保存，支持点击进入可视化编辑
 - 支持不选择模板，直接按照任务要求自动规划输出结构
 - 用户可加密保存自己的 OpenAI 兼容 API Key
-- 导出 Markdown 和真正的 `.pptx` 文件
+- 导出 Markdown、可编辑 `.docx`、正式 `.pdf` 和真正的 `.pptx` 文件；PDF 由容器内 LibreOffice 转换并保留中文字体
+- PPTX 模板会解析页面文字、图片替代文字、图表标题与系列、表格、speaker notes 和元素阅读顺序
+- 研究历史支持按版本展示章节、PPT 页面和证据的新增/删除/修改差异；运行监控支持队列、任务状态和 Agent 节点耗时/失败筛选
 - 可选 SMTP 密码重置、开放注册、邀请码注册或关闭注册
 
 ## 本地启动
@@ -161,6 +163,8 @@ npm run mcp
 
 提供 `search_sources`、`search_papers`、`search_arxiv`、`search_knowledge`、`list_library` 和 `fetch_url`。Web 研究流程和复习对话通过进程内 MCP transport 使用同一套工具，而不是只把大模型接口包一层。
 
+配置中心还支持账户级 MCP 权限：允许/禁止工具、外部域名白名单、单次会话调用上限和单工具超时。部署级别可用 `MCP_ALLOWED_TOOLS`、`MCP_DENIED_TOOLS`、`MCP_ALLOWED_DOMAINS`、`MCP_MAX_CALLS` 和 `MCP_TOOL_TIMEOUT_MS` 设置默认值。
+
 配置中心可一键跳转到智谱、DeepSeek、OpenAI、Jina、硅基流动的 API Key 申请页，并说明各家 Embedding 与 pgvector 的维度要求。
 
 ## 验证
@@ -189,4 +193,4 @@ examples/              可上传的示例资料
 
 迁移 `012_chunk_provenance.sql` 增加可空的章节与分块序号，不改写旧向量。新版检索和摘录直接适用于旧资料；云端按需对单份资料执行「重建索引」后，新的分块可携带 PDF 页码或 Markdown 章节。日志 `library.index.prepared`、`library.index.saved` 可按 documentId 关联解析、Embedding 与写库耗时，不记录正文。
 
-自动测试使用合成材料，不会请求模型。要在**自己的本地评测库**测真实效果，可在仓库外准备 JSON 数组，例如 `[{"question":"测试用例依据哪些材料生成？","expectedText":"需求规格","documentName":"实验报告.pdf"},{"question":"材料是否给出了上线后的转化率？","expectedText":null}]`。建议包含明确答案、块尾、跨段和无答案四类，并手工标注真实原文。使用与该库匹配的 Embedding 配置，在允许向已配置供应商发送问题和片段后运行 `KNOWLEDGE_EVAL_CASES=/absolute/path/cases.json npm test -- src/lib/knowledge-live-eval.test.ts`。输出命中排名、Hit@8、无答案误返回率和 P95 耗时；不自动访问云端用户的私有工作区。
+自动测试使用合成材料，不会请求模型。要在**自己的本地评测库**测真实效果，可在仓库外准备 JSON 数组，例如 `[{"question":"测试用例依据哪些材料生成？","expectedText":"需求规格","documentName":"实验报告.pdf"},{"question":"材料是否给出了上线后的转化率？","expectedText":null}]`。建议包含明确答案、块尾、跨段和无答案四类，并手工标注真实原文。使用与该库匹配的 Embedding 配置，在允许向已配置供应商发送问题和片段后运行 `KNOWLEDGE_EVAL_CASES=/absolute/path/cases.json npm test -- src/lib/knowledge-live-eval.test.ts`。输出 Hit@5、Hit@8、MRR、无答案误返回率、平均耗时和 P95 耗时；不自动访问云端用户的私有工作区。

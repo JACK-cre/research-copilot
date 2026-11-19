@@ -13,10 +13,10 @@ export type KnowledgeRecallLimit = {
   finalLimit: number;
 };
 
-export function knowledgeRecallLimit(finalLimit = KNOWLEDGE_FINAL_RESULTS): KnowledgeRecallLimit {
+export function knowledgeRecallLimit(finalLimit = KNOWLEDGE_FINAL_RESULTS, retrievalLimit?: number): KnowledgeRecallLimit {
   const final = Math.max(1, Math.min(20, Math.floor(finalLimit)));
   return {
-    retrievalLimit: Math.max(final * 3, KNOWLEDGE_RERANK_CANDIDATES),
+    retrievalLimit: Math.max(final * 3, Math.min(40, Math.max(KNOWLEDGE_RERANK_CANDIDATES, Math.floor(retrievalLimit ?? KNOWLEDGE_RERANK_CANDIDATES)))),
     finalLimit: final,
   };
 }
@@ -93,8 +93,8 @@ export async function rerankKnowledgeResults(input: {
   const aliases = new Map(input.candidates.map((candidate, index) => [`K${index + 1}`, candidate]));
   const candidateText = Array.from(aliases.entries()).map(([id, candidate]) => [
     `[${id}] document=${candidate.documentName}${candidate.page ? ` page=${candidate.page}` : ''}`,
-    `route=${(candidate.routes ?? []).join(',')} fused_score=${(candidate.fusedScore ?? candidate.score).toFixed(3)}`,
-    `section=${candidate.section ?? ''} content=${matchedPassage(candidate.content, input.query, 600)}`,
+    `route=${(candidate.routes ?? []).join(',')} fused_score=${(candidate.fusedScore ?? candidate.score).toFixed(3)} structure_score=${(candidate.structureScore ?? 0).toFixed(3)}`,
+    `section=${candidate.section ?? ''} parent=${candidate.parentContent ? matchedPassage(candidate.parentContent, input.query, 240) : ''} content=${matchedPassage(candidate.content, input.query, 600)}`,
   ].join('\n')).join('\n\n');
 
   try {

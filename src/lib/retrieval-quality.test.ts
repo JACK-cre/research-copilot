@@ -25,6 +25,11 @@ describe('retrieval quality regressions (no provider calls)', () => {
   it('keeps the next paragraph when the evidence runs across a chunk boundary', () => {
     expect(evidencePassage({ content: '测试用例的生成来源如下：', followingText: '需求规格、设计模型和代码结构。' }, question, 360)).toContain('设计模型');
   });
+  it('adds relevant parent context without replacing the matched child chunk', () => {
+    const passage = evidencePassage({ content: answer, parentContent: '实验三：测试用例设计方法与适用条件。', followingText: '需求规格是第一来源。' }, question, 360);
+    expect(passage).toContain('章节上下文');
+    expect(passage).toContain(answer);
+  });
   it('maps model aliases back to real chunks, including a match outside the initial top 8', async () => {
     const candidates = Array.from({length:10}, (_, i) => hit(`doc:${i}`, i === 9 ? answer : '环境配置'));
     model.mockResolvedValueOnce({items:candidates.map((_, i) => ({id:`K${i+1}`, score:i === 9 ? 1 : 0}))});

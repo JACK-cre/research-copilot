@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseTemplateBlueprint } from '@/lib/template-blueprint';
+import { extractPptxVisualTemplate } from '@/lib/pptx-visual';
 
 const slide = {
   id: 'uploaded-slide-1',
@@ -38,6 +39,20 @@ const slide = {
 };
 
 describe('visual PPTX templates', () => {
+  it('extracts notes, chart metadata, image metadata and reading order', async () => {
+    const zip = new (await import('jszip')).default();
+    zip.file('ppt/presentation.xml', '<p:presentation><p:sldSz cx="12192000" cy="6858000"/></p:presentation>');
+    zip.file('ppt/slides/slide1.xml', '<p:sld><p:cSld><p:spTree><p:pic><p:nvPicPr><p:cNvPr id="8" name="封面图" descr="流程示意图"/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/></p:blipFill><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1000000" cy="1000000"/></a:xfrm></p:spPr></p:pic><a:tbl><a:tr><a:tc><a:t>列1</a:t></a:tc><a:tc><a:t>列2</a:t></a:tc></a:tr></a:tbl></p:spTree></p:cSld></p:sld>');
+    zip.file('ppt/slides/_rels/slide1.xml.rels', '<Relationships><Relationship Id="rId2" Target="../media/image1.png"/><Relationship Id="rId3" Target="../charts/chart1.xml"/></Relationships>');
+    zip.file('ppt/charts/chart1.xml', '<c:chart><c:title><a:t>趋势图</a:t></c:title><c:plotArea><c:lineChart><c:ser><c:tx><a:t>系列一</a:t></c:tx><c:cat><c:strCache><c:pt idx="0"><c:v>一月</c:v></c:pt></c:strCache></c:cat><c:val><c:numCache><c:pt idx="0"><c:v>3</c:v></c:pt></c:numCache></c:val></c:ser></c:lineChart></c:plotArea></c:chart>');
+    zip.file('ppt/notesSlides/notesSlide1.xml', '<p:notes><a:t>这一页说明实施路径。</a:t></p:notes>');
+    const result = await extractPptxVisualTemplate(await zip.generateAsync({ type: 'uint8array' }));
+    expect(result.slides[0].analysis?.speakerNotes).toContain('实施路径');
+    expect(result.slides[0].analysis?.charts[0]?.title).toBe('趋势图');
+    expect(result.slides[0].analysis?.images[0]?.altText).toBe('流程示意图');
+    expect(result.slides[0].analysis?.tables[0]?.columns).toBe(2);
+  });
+
   it('validates slide elements in a persisted blueprint', () => {
     const blueprint = parseTemplateBlueprint({
       sections: [],

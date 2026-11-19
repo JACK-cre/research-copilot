@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, ChevronRight, FileText, KeyRound, LoaderCircle, Pencil, Presentation, Sparkles, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FileText, KeyRound, LoaderCircle, Pencil, Presentation, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { TemplateBlueprintEditor } from '@/components/template-blueprint-editor';
@@ -63,6 +63,8 @@ export function SettingsView({ templates, onTemplatesChanged, onError, onNotice 
   });
   const [showAdvancedTemplate, setShowAdvancedTemplate] = useState(false);
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [mcpPolicy, setMcpPolicy] = useState({ allowedTools: ['search_papers', 'search_sources', 'search_knowledge', 'list_library', 'search_arxiv', 'fetch_url'], deniedTools: [] as string[], allowedDomains: [] as string[], maxCalls: 120, toolTimeoutMs: 120000 });
+  const [savingMcp, setSavingMcp] = useState(false);
 
   const loadAiSettings = useCallback(async () => {
     try {
@@ -82,6 +84,30 @@ export function SettingsView({ templates, onTemplatesChanged, onError, onNotice 
   useEffect(() => {
     void loadAiSettings();
   }, [loadAiSettings]);
+
+  useEffect(() => {
+    void fetch('/api/settings/mcp', { cache: 'no-store' }).then(async (response) => {
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'MCP 权限读取失败');
+      if (payload.policy) setMcpPolicy(payload.policy);
+    }).catch((loadError) => onError(loadError instanceof Error ? loadError.message : 'MCP 权限读取失败'));
+  }, [onError]);
+
+  async function saveMcpPolicy(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingMcp(true);
+    try {
+      const response = await fetch('/api/settings/mcp', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mcpPolicy) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'MCP 权限保存失败');
+      setMcpPolicy(payload.policy);
+      onNotice('MCP 工具权限已保存');
+    } catch (saveError) {
+      onError(saveError instanceof Error ? saveError.message : 'MCP 权限保存失败');
+    } finally {
+      setSavingMcp(false);
+    }
+  }
 
   async function saveAi(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -297,6 +323,18 @@ export function SettingsView({ templates, onTemplatesChanged, onError, onNotice 
         <div className="settings-actions"><button className="button primary" disabled={savingAi}>{savingAi ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}保存配置</button>{ai?.hasPersonalKey ? <button type="button" className="button secondary danger-text" onClick={() => void removeAi()}>删除个人 Key</button> : null}</div>
       </form>
       </div> : null}
+    </section>
+
+    <section className="settings-section">
+      <div className="settings-title"><ShieldCheck size={19} /><div><h2>MCP 工具权限</h2><span>按当前账户限制工具、域名和调用次数</span></div></div>
+      <p className="settings-description">默认只开放研究类只读工具。需要联网抓取时可以填写域名白名单；留空表示不额外限制域名。权限会按账户保存，不影响其他用户。</p>
+      <form className="settings-form" onSubmit={saveMcpPolicy}>
+        <label><span>允许的工具</span><input value={mcpPolicy.allowedTools.join(', ')} onChange={(event) => setMcpPolicy({ ...mcpPolicy, allowedTools: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="search_knowledge, search_sources" /><small>可选：search_papers、search_sources、search_knowledge、list_library、search_arxiv、fetch_url。</small></label>
+        <label><span>禁止的工具</span><input value={mcpPolicy.deniedTools.join(', ')} onChange={(event) => setMcpPolicy({ ...mcpPolicy, deniedTools: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="留空" /></label>
+        <label><span>允许访问的域名</span><input value={mcpPolicy.allowedDomains.join(', ')} onChange={(event) => setMcpPolicy({ ...mcpPolicy, allowedDomains: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} placeholder="api.openalex.org, arxiv.org" /><small>留空不限制域名，但内网地址仍会被 fetch_url 拦截。</small></label>
+        <div className="settings-grid"><label><span>单次会话最多调用次数</span><input type="number" min={1} max={1000} value={mcpPolicy.maxCalls} onChange={(event) => setMcpPolicy({ ...mcpPolicy, maxCalls: Number(event.target.value) || 120 })} /></label><label><span>单个工具超时（毫秒）</span><input type="number" min={1000} max={300000} value={mcpPolicy.toolTimeoutMs} onChange={(event) => setMcpPolicy({ ...mcpPolicy, toolTimeoutMs: Number(event.target.value) || 120000 })} /></label></div>
+        <div className="settings-actions"><button className="button primary" disabled={savingMcp}>{savingMcp ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}保存 MCP 权限</button></div>
+      </form>
     </section>
 
     <section className="settings-section">

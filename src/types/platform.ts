@@ -66,6 +66,37 @@ export interface TemplateSlideElement {
   zIndex: number;
 }
 
+export interface TemplatePptxImageSummary {
+  id: string;
+  name?: string;
+  altText?: string;
+  path?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface TemplatePptxChartSummary {
+  type: string;
+  title?: string;
+  seriesCount: number;
+  series: Array<{ name?: string; categories: string[]; values: number[] }>;
+}
+
+export interface TemplatePptxTableSummary {
+  rows: number;
+  columns: number;
+  cells: string[];
+}
+
+export interface TemplatePptxSlideAnalysis {
+  speakerNotes?: string;
+  images: TemplatePptxImageSummary[];
+  charts: TemplatePptxChartSummary[];
+  tables: TemplatePptxTableSummary[];
+  readingOrder: string[];
+  semanticHints: string[];
+}
+
 export interface TemplateSlideBlueprint {
   id: string;
   title: string;
@@ -74,6 +105,7 @@ export interface TemplateSlideBlueprint {
   background?: string;
   elements?: TemplateSlideElement[];
   source?: 'uploaded-pptx' | 'generated';
+  analysis?: TemplatePptxSlideAnalysis;
 }
 
 export interface DocumentPagePreview {
@@ -142,7 +174,7 @@ export interface ResearchRunSummary {
   templateName?: string;
 }
 
-export type ArtifactType = 'markdown' | 'pptx';
+export type ArtifactType = 'markdown' | 'docx' | 'pdf' | 'pptx';
 
 export interface ResearchArtifact {
   id: string;

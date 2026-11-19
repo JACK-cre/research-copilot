@@ -1,5 +1,6 @@
 import type { KnowledgeSearchResult } from '@/lib/vector-store';
 import { extractRelevanceTerms } from '@/lib/source-relevance';
+import { buildRetrievalStrategy, calculateStructureScore, type RetrievalStrategy } from '@/lib/retrieval-strategy';
 
 export function extractKeywordTerms(query: string): string[] {
   return extractRelevanceTerms(query).slice(0, 16);
@@ -38,11 +39,12 @@ export function fuseKnowledgeResults(
   semantic: KnowledgeSearchResult[],
   keyword: KnowledgeSearchResult[],
   limit: number,
-  options: { semanticReliable?: boolean; semanticThreshold?: number; keywordThreshold?: number } = {},
+  options: { semanticReliable?: boolean; semanticThreshold?: number; keywordThreshold?: number; strategy?: RetrievalStrategy } = {},
 ): KnowledgeSearchResult[] {
   const semanticReliable = options.semanticReliable ?? true;
-  const semanticThreshold = options.semanticThreshold ?? 0.58;
-  const keywordThreshold = options.keywordThreshold ?? 0.16;
+  const strategy = options.strategy;
+  const semanticThreshold = options.semanticThreshold ?? strategy?.semanticThreshold ?? 0.58;
+  const keywordThreshold = options.keywordThreshold ?? strategy?.keywordThreshold ?? 0.16;
   const semanticById = new Map(semantic.map((item) => [item.id, item]));
   const keywordById = new Map(keyword.map((item) => [item.id, item]));
   const ids = new Set([...semanticById.keys(), ...keywordById.keys()]);
@@ -58,23 +60,32 @@ export function fuseKnowledgeResults(
 
     const base = semanticItem ?? keywordItem;
     if (!base) return [];
+    const structureScore = strategy ? calculateStructureScore(base, strategyQuery(strategy), strategy) : 0;
     const routes: Array<'semantic' | 'keyword'> = [];
     if (semanticAccepted) routes.push('semantic');
     if (keywordAccepted) routes.push('keyword');
+    const semanticWeight = strategy?.semanticWeight ?? 0.62;
+    const keywordWeight = strategy?.keywordWeight ?? 0.38;
+    const structureBoost = strategy ? structureScore * strategy.structureWeight : 0;
     const fusedScore = semanticAccepted && keywordAccepted
-      ? Math.min(1, semanticScore * 0.62 + keywordScore * 0.38 + 0.2)
+      ? Math.min(1, semanticScore * semanticWeight + keywordScore * keywordWeight + 0.2 + structureBoost)
       : semanticAccepted
-        ? semanticScore
-        : Math.min(1, keywordScore * 0.9 + (semanticReliable ? semanticScore * 0.1 : 0));
+        ? Math.min(1, semanticScore * semanticWeight + structureBoost)
+        : Math.min(1, keywordScore * keywordWeight + (semanticReliable ? semanticScore * (1 - keywordWeight) : 0) + structureBoost);
     return [{
       ...base,
       score: fusedScore,
       fusedScore,
       semanticScore: semanticAccepted ? semanticScore : 0,
       keywordScore: keywordAccepted ? keywordScore : 0,
+      structureScore,
       routes,
     }];
   })
     .sort((left, right) => right.score - left.score)
     .slice(0, limit);
+}
+
+function strategyQuery(strategy: RetrievalStrategy): string {
+  return strategy.query;
 }

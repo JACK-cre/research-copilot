@@ -1,4 +1,3 @@
-import { fetchText } from '@/lib/http';
 import { normalizeWhitespace } from '@/lib/text';
 
 const BLOCKED_HOSTS = new Set([
@@ -13,6 +12,17 @@ export function isBlockedFetchHost(hostname: string): boolean {
     return true;
   }
   if (host === '::1' || host === '0.0.0.0') return true;
+  const ipv6 = host.replace(/^\[|\]$/g, '');
+  if (ipv6.includes(':')) {
+    return ipv6 === '::1'
+      || ipv6 === '::'
+      || ipv6.startsWith('fc')
+      || ipv6.startsWith('fd')
+      || ipv6.startsWith('fe8')
+      || ipv6.startsWith('fe9')
+      || ipv6.startsWith('fea')
+      || ipv6.startsWith('feb');
+  }
   const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipv4) {
     const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
@@ -47,7 +57,7 @@ export function htmlToText(html: string): string {
 
 export async function fetchPublicPage(
   rawUrl: string,
-  options: { maxChars?: number } = {},
+  options: { maxChars?: number; maxBytes?: number; maxRedirects?: number } = {},
 ): Promise<{ url: string; title: string; text: string }> {
   let parsed: URL;
   try {
@@ -61,10 +71,51 @@ export async function fetchPublicPage(
   if (isBlockedFetchHost(parsed.hostname)) {
     throw new Error('拒绝访问内网或本机地址。');
   }
-
-  const html = await fetchText(parsed, { timeoutMs: 10_000, retries: 1 });
-  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? parsed.hostname;
+  const maxBytes = Math.min(Math.max(options.maxBytes ?? 2_000_000, 32_000), 5_000_000);
+  const maxRedirects = Math.min(Math.max(options.maxRedirects ?? 3, 0), 5);
+  let current = parsed;
+  let response: Response | undefined;
+  for (let redirects = 0; redirects <= maxRedirects; redirects += 1) {
+    response = await fetch(current, {
+      headers: { Accept: 'text/html, application/xhtml+xml, application/xml;q=0.9, text/plain;q=0.8', 'User-Agent': 'ResearchCopilot/0.1' },
+      cache: 'no-store',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location || redirects === maxRedirects) throw new Error('网页重定向次数过多或缺少目标地址。');
+      const next = new URL(location, current);
+      if ((next.protocol !== 'http:' && next.protocol !== 'https:') || isBlockedFetchHost(next.hostname)) {
+        throw new Error('拒绝重定向到内网或本机地址。');
+      }
+      current = next;
+      continue;
+    }
+    if (!response.ok) throw new Error(`网页读取失败：HTTP ${response.status}`);
+    break;
+  }
+  if (!response || !response.ok) throw new Error('网页读取失败。');
+  const length = Number(response.headers.get('content-length') ?? 0);
+  if (length > maxBytes) throw new Error('网页响应过大，已停止读取。');
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let html = '';
+  if (reader) {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > maxBytes) { await reader.cancel(); throw new Error('网页响应过大，已停止读取。'); }
+      html += decoder.decode(part.value, { stream: true });
+    }
+    html += decoder.decode();
+  } else {
+    html = await response.text();
+  }
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? current.hostname;
   const text = htmlToText(html).slice(0, options.maxChars ?? 8000);
   if (!text) throw new Error('网页没有可提取的正文。');
-  return { url: parsed.toString(), title: htmlToText(title).slice(0, 180), text };
+  return { url: current.toString(), title: htmlToText(title).slice(0, 180), text };
 }

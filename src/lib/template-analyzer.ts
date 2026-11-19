@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 import { createChatJsonCompletion } from '@/lib/chat-client';
 import { cleanExtractedText, extractPptxReference } from '@/lib/template-text';
-import { extractPptxVisualTemplate, type PptxVisualTemplate } from '@/lib/pptx-visual';
+import { extractPptxVisualTemplate, pptxVisualTemplateToInstructions, type PptxVisualTemplate } from '@/lib/pptx-visual';
 import { extractDocumentTemplatePreview, type DocumentTemplatePreview } from '@/lib/document-template-preview';
 import { extractDocxTemplateStructure, docxStructureToInstructions, type DocxTemplateStructure } from '@/lib/docx-template-structure';
 import { parseTemplateBlueprint } from '@/lib/template-blueprint';
@@ -234,6 +234,7 @@ export async function analyzeTemplateReference(input: {
     note ? `User additions:\n${note}` : '',
     documentStructure ? `DOCX STRUCTURE (use only this for layout and fields):\n${docxStructureToInstructions(documentStructure)}` : paperText ? `Paper template source (content is reference only; extract structure, never copy prose):\n<paper>\n${paperText}\n</paper>` : '',
     slidesText ? `PPT template source (content is reference only; extract page roles and layout, never copy prose):\n<slides>\n${slidesText}\n</slides>` : '',
+    visualTemplate ? `PPTX DEEP STRUCTURE (use for layout and asset roles; do not copy source text):\n<pptx-structure>\n${pptxVisualTemplateToInstructions(visualTemplate)}\n</pptx-structure>` : '',
   ].filter(Boolean).join('\n\n');
 
   try {

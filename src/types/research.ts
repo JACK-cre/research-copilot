@@ -1,4 +1,5 @@
 import type { AgentTraceStep } from '@/lib/agents/types';
+import type { ClaimPlanEntry } from '@/lib/claim-plan';
 import type {
   AiCredentialSource,
   OutputTemplateSnapshot,
@@ -66,6 +67,7 @@ export interface KnowledgeChunk {
   page?: number;
   section?: string;
   chunkIndex?: number;
+  parentContent?: string;
   embedding: number[];
 }
 
@@ -74,6 +76,7 @@ export type KnowledgeChunkPreview = Omit<KnowledgeChunk, "embedding">;
 export interface EvidenceScoreDetails {
   semantic?: number;
   keyword?: number;
+  structure?: number;
   fused?: number;
   rerank?: number;
 }
@@ -165,6 +168,15 @@ export interface CitationAuditSummary {
   totalEvidence: number;
 }
 
+export interface ClaimAuditSummary {
+  valid: boolean;
+  totalClaims: number;
+  supportedClaims: number;
+  unsupportedClaims: number;
+  numericIssues: number;
+  issues: Array<{ location: string; claim: string; kind: 'unsupported' | 'number' | 'weak'; message: string }>;
+}
+
 export interface ResearchResult {
   id: string;
   createdAt: string;
@@ -182,6 +194,8 @@ export interface ResearchResult {
   aiSource?: AiCredentialSource;
   template?: OutputTemplateSnapshot;
   citationAudit?: CitationAuditSummary;
+  claimAudit?: ClaimAuditSummary;
+  claimPlan?: ClaimPlanEntry[];
   version?: number;
   parentRunId?: string;
   revisionInstruction?: string;

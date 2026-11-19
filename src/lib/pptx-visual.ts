@@ -2,6 +2,10 @@ import JSZip from 'jszip';
 import sharp from 'sharp';
 
 import type {
+  TemplatePptxChartSummary,
+  TemplatePptxImageSummary,
+  TemplatePptxSlideAnalysis,
+  TemplatePptxTableSummary,
   TemplateSlideBlueprint,
   TemplateSlideElement,
 } from '@/types/platform';
@@ -209,10 +213,72 @@ function extractTextTitle(elements: TemplateSlideElement[], index: number): stri
   return texts[0]?.text?.slice(0, 200) || `第 ${index + 1} 页`;
 }
 
+function xmlText(xml: string): string {
+  return [...xml.matchAll(/<a:t\b[^>]*>([^<]*)<\/a:t>/g)]
+    .map((match) => normalizeText(match[1] ?? ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
+function chartCacheText(xml: string): string[] {
+  return [...xml.matchAll(/<c:pt\b[^>]*>\s*<c:v>([^<]*)<\/c:v>\s*<\/c:pt>/g)]
+    .map((match) => decodeXml(match[1] ?? '').trim())
+    .filter(Boolean);
+}
+
+function chartCacheNumbers(xml: string): number[] {
+  return chartCacheText(xml).map(Number).filter(Number.isFinite);
+}
+
+function extractChart(xml: string): TemplatePptxChartSummary {
+  const chartType = ['barChart', 'lineChart', 'pieChart', 'areaChart', 'scatterChart', 'doughnutChart', 'radarChart']
+    .find((type) => new RegExp(`<c:${type}\\b`).test(xml)) ?? 'chart';
+  const title = xml.match(/<c:title>[\s\S]*?<a:t>([^<]+)<\/a:t>[\s\S]*?<\/c:title>/)?.[1];
+  const series = [...xml.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)].map((match) => {
+    const body = match[1] ?? '';
+    const name = body.match(/<c:tx>[\s\S]*?<a:t>([^<]+)<\/a:t>/)?.[1];
+    const categoryBlock = body.match(/<c:cat>([\s\S]*?)<\/c:cat>/)?.[1] ?? '';
+    const valueBlock = body.match(/<c:val>([\s\S]*?)<\/c:val>/)?.[1] ?? '';
+    return { name: name ? decodeXml(name).trim() : undefined, categories: chartCacheText(categoryBlock), values: chartCacheNumbers(valueBlock) };
+  });
+  return { type: chartType, title: title ? decodeXml(title).trim() : undefined, seriesCount: series.length, series };
+}
+
+function extractTable(xml: string): TemplatePptxTableSummary | null {
+  const table = xml.match(/<a:tbl>([\s\S]*?)<\/a:tbl>/)?.[1];
+  if (!table) return null;
+  const rows = [...table.matchAll(/<a:tr\b[^>]*>([\s\S]*?)<\/a:tr>/g)];
+  const cells = [...table.matchAll(/<a:tc\b[^>]*>([\s\S]*?)<\/a:tc>/g)].map((match) => xmlText(match[1] ?? ''));
+  return { rows: rows.length, columns: Math.max(0, ...rows.map((row) => (row[1]?.match(/<a:tc\b/g) ?? []).length)), cells: cells.slice(0, 1000) };
+}
+
+async function extractSpeakerNotes(zip: JSZip, slideIndex: number): Promise<string | undefined> {
+  const file = zip.file(`ppt/notesSlides/notesSlide${slideIndex + 1}.xml`);
+  if (!file) return undefined;
+  const text = xmlText(await file.async('string'));
+  return text || undefined;
+}
+
 export interface PptxVisualTemplate {
   slides: TemplateSlideBlueprint[];
   width: number;
   height: number;
+}
+
+export function pptxVisualTemplateToInstructions(template: PptxVisualTemplate): string {
+  return template.slides.map((slide, index) => {
+    const analysis = slide.analysis;
+    const parts = [
+      `第 ${index + 1} 页：${slide.title}；布局 ${slide.layout}`,
+      analysis?.speakerNotes ? `演讲备注：${analysis.speakerNotes.slice(0, 1200)}` : '',
+      analysis?.semanticHints.length ? `页面元素：${analysis.semanticHints.join('、')}` : '',
+      analysis?.images.length ? `图片信息：${analysis.images.map((image) => [image.name, image.altText].filter(Boolean).join(' / ') || '未命名图片').join('；')}` : '',
+      analysis?.charts.length ? `图表信息：${analysis.charts.map((chart) => `${chart.type}${chart.title ? `（${chart.title}）` : ''}，${chart.seriesCount} 个系列`).join('；')}` : '',
+      analysis?.tables.length ? `表格信息：${analysis.tables.map((table) => `${table.rows} 行 × ${table.columns} 列`).join('；')}` : '',
+      analysis?.readingOrder.length ? `阅读顺序：${analysis.readingOrder.join(' → ')}` : '',
+    ].filter(Boolean);
+    return parts.join('\n');
+  }).join('\n\n');
 }
 
 export async function extractPptxVisualTemplate(bytes: Uint8Array): Promise<PptxVisualTemplate> {
@@ -335,6 +401,41 @@ export async function extractPptxVisualTemplate(bytes: Uint8Array): Promise<Pptx
 
     slide.elements = elements;
     slide.title = extractTextTitle(elements, slideIndex);
+    const images: TemplatePptxImageSummary[] = [];
+    for (const match of xml.matchAll(/<p:pic>([\s\S]*?)<\/p:pic>/g)) {
+      const pictureXml = match[1] ?? '';
+      const cNvPr = pictureXml.match(/<p:cNvPr\b[^>]*>/)?.[0] ?? '';
+      const transform = pictureXml.match(/<a:xfrm\b[^>]*>([\s\S]*?)<\/a:xfrm>/)?.[1] ?? '';
+      const extent = transform.match(/<a:ext\b[^>]*>/)?.[0] ?? '';
+      const widthEmuImage = numberAttr(extent, 'cx');
+      const heightEmuImage = numberAttr(extent, 'cy');
+      const relationId = attr(pictureXml.match(/<a:blip\b[^>]*>/)?.[0] ?? '', 'r:embed');
+      images.push({
+        id: attr(cNvPr, 'id') ?? `image-${images.length + 1}`,
+        name: attr(cNvPr, 'name'),
+        altText: attr(cNvPr, 'descr'),
+        path: relationId ? relationships.get(relationId) : undefined,
+        width: widthEmuImage ? widthEmuImage / widthEmu * width : undefined,
+        height: heightEmuImage ? heightEmuImage / heightEmu * height : undefined,
+      });
+    }
+    const charts: TemplatePptxChartSummary[] = [];
+    for (const target of relationships.values()) {
+      const chartPath = resolveTarget(slidePath, target);
+      if (!/^ppt\/charts\/chart\d+\.xml$/i.test(chartPath)) continue;
+      const chartFile = zip.file(chartPath);
+      if (chartFile) charts.push(extractChart(await chartFile.async('string')));
+    }
+    const tables = [...xml.matchAll(/<a:tbl>[\s\S]*?<\/a:tbl>/g)].map((match) => extractTable(match[0])).filter((item): item is TemplatePptxTableSummary => Boolean(item));
+    const readingOrder = elements.slice().sort((left, right) => left.y - right.y || left.x - right.x).map((element) => element.id);
+    const semanticHints = [
+      images.length ? `图片 ${images.length} 个${images.some((image) => image.altText) ? '，含替代文字' : ''}` : '',
+      charts.length ? `图表 ${charts.length} 个` : '',
+      tables.length ? `表格 ${tables.length} 个` : '',
+      elements.filter((element) => element.type === 'shape').length ? `装饰/图形 ${elements.filter((element) => element.type === 'shape').length} 个` : '',
+    ].filter(Boolean);
+    const speakerNotes = await extractSpeakerNotes(zip, slideIndex);
+    slide.analysis = { speakerNotes, images, charts, tables, readingOrder, semanticHints };
     slides.push(slide);
   }
 

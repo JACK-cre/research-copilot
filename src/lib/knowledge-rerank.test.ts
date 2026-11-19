@@ -22,6 +22,7 @@ describe('knowledge rerank', () => {
   it('retrieves at least 24 candidates and returns the requested final count', () => {
     expect(knowledgeRecallLimit(8)).toEqual({ retrievalLimit: 24, finalLimit: 8 });
     expect(knowledgeRecallLimit(6)).toEqual({ retrievalLimit: 24, finalLimit: 6 });
+    expect(knowledgeRecallLimit(8, 40)).toEqual({ retrievalLimit: 40, finalLimit: 8 });
   });
 
   it('combines model and fused scores and rejects weak candidates', () => {
